@@ -1,0 +1,137 @@
+<title>Blimp Privacy Policy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Figtree:wght@400;500;600&display=swap">
+<style>
+/* Layout: a single readable column, like a settings page in the app itself, with a short "at a glance" panel up top. */
+:root {
+  --bg: #f8f7f2;
+  --surface: #ffffff;
+  --fg: #15140f;
+  --muted: #5c5848;
+  --line: #e7e3d4;
+  --accent: #8a6100;
+  --accent-soft: #fdf3c8;
+  --display: "Sora", "Segoe UI", system-ui, sans-serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #000000; --surface: #11100c; --fg: #f3f2ee; --muted: #a8a395;
+    --line: #2a2717; --accent: #facc15; --accent-soft: #241e05; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #000000; --surface: #11100c; --fg: #f3f2ee; --muted: #a8a395;
+  --line: #2a2717; --accent: #facc15; --accent-soft: #241e05; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 17px; line-height: 1.65; }
+.page { max-width: 44rem; margin: 0 auto; padding-inline: 20px; padding-block: 56px 72px; display: grid; gap: 40px; }
+header { display: grid; gap: 14px; }
+.brand { display: flex; align-items: center; gap: 12px; font-family: var(--display); font-weight: 700; font-size: 20px; }
+.mark { width: 36px; height: 36px; border-radius: 10px; background: #facc15; display: grid; place-items: center; }
+.mark svg { width: 20px; height: 20px; }
+h1 { font-family: var(--display); font-size: clamp(32px, 6vw, 44px); line-height: 1.15; margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
+.meta { color: var(--muted); margin: 0; font-size: 15px; }
+.glance { background: var(--accent-soft); border-radius: 16px; padding: 22px 24px; display: grid; gap: 10px; }
+.glance h2 { margin: 0; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); font-family: var(--body); font-weight: 600; }
+.glance ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+section { display: grid; gap: 10px; }
+section h2 { font-family: var(--display); font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+section p, section ul { margin: 0; }
+section ul { padding-left: 1.1em; display: grid; gap: 6px; }
+.perm { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.perm div { display: grid; grid-template-columns: minmax(0, 12rem) minmax(0, 1fr); gap: 16px; padding: 14px 18px; border-top: 1px solid var(--line); }
+.perm div:first-child { border-top: 0; }
+.perm dt { font-weight: 600; }
+.perm dd { margin: 0; color: var(--muted); }
+@media (max-width: 560px) { .perm div { grid-template-columns: 1fr; gap: 2px; } }
+strong { font-weight: 600; }
+a { color: var(--accent); }
+footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line); padding-top: 20px; }
+</style>
+
+<main class="page">
+  <header>
+    <div class="brand">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="#111111" stroke-width="2.2" stroke-linecap="round"><path d="M3 8v4M6.5 5v10M10 3v14M13.5 6v8M17 8.5v3"/></svg></span>
+      Blimp
+    </div>
+    <h1>Privacy Policy</h1>
+    <p class="meta">Effective 9 October 2026 · Applies to the Blimp music player for Android and Windows</p>
+  </header>
+
+  <div class="glance">
+    <h2>At a glance</h2>
+    <ul>
+      <li>Blimp has no internet access. It cannot send anything anywhere.</li>
+      <li>We don't collect, store, sell or share any personal data.</li>
+      <li>Everything Blimp keeps, like playlists and listening history, stays on your device.</li>
+      <li>The visualizer only reads the sound Blimp is playing. Blimp never records audio.</li>
+    </ul>
+  </div>
+
+  <section>
+    <h2>What Blimp does</h2>
+    <p>Blimp is a music player for the audio files already on your phone or PC. It works entirely offline. There are no accounts, no ads, no analytics and no third-party tracking tools in the app.</p>
+  </section>
+
+  <section>
+    <h2>On Android: permissions and why Blimp asks for them</h2>
+    <dl class="perm">
+      <div><dt>Music and audio</dt><dd>To find and play the songs on your device, and read their details such as title, artist, album art and lyrics.</dd></div>
+      <div><dt>Microphone</dt><dd>Android requires this permission for its audio visualizer, which Blimp uses to draw bars that move with the music Blimp is playing. Blimp does not record, store or listen to sound from your microphone.</dd></div>
+      <div><dt>Control audio settings</dt><dd>For the equalizer and volume normalisation.</dd></div>
+      <div><dt>Keep running in the background</dt><dd>So music keeps playing with the screen off, with controls in the notification and on the lock screen.</dd></div>
+    </dl>
+  </section>
+
+  <section>
+    <h2>On Windows: what Blimp reads</h2>
+    <dl class="perm">
+      <div><dt>Your music folder</dt><dd>Blimp reads the audio files in the folder you choose (Music by default) to find your songs and their details, such as title, artist, album art and lyrics. It doesn't read other folders.</dd></div>
+      <div><dt>Sound for the visualizer</dt><dd>The visualizer reads the sound Blimp itself is playing to draw bars that move with it. On versions of Windows older than Windows 11, Windows can only give it the sound of the whole PC, so other apps' sound moves the bars too. That sound is used only to draw the visualizer, as it plays. It is never recorded or stored. Blimp does not use your microphone.</dd></div>
+      <div><dt>Media keys and controls</dt><dd>Blimp shows the song that's playing in Windows' media controls, so your keyboard's media keys can control it.</dd></div>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Information stored on your device</h2>
+    <p>To work as a music player, Blimp saves a few things on your phone or PC. None of it ever leaves the device through Blimp:</p>
+    <ul>
+      <li>Your playlists, favourites and current queue</li>
+      <li>Listening history, used for Home, your top songs and listening stats</li>
+      <li>Search history</li>
+      <li>Your settings, such as theme, equalizer and hidden folders</li>
+      <li>On Windows, a saved scan of your music folder and shrunken copies of album covers, so Blimp starts quickly, and the window's size and position</li>
+    </ul>
+    <p>You can pause or clear your listening and search history at any time in <strong>Settings → Privacy &amp; data</strong>. Uninstalling Blimp on Android, or the Microsoft Store version on Windows, deletes all of it. If you installed Blimp on Windows from this website, uninstalling keeps your saved data in your user folder (AppData) in case you reinstall; you can delete it there.</p>
+  </section>
+
+  <section>
+    <h2>Device backup</h2>
+    <p>If you have turned on Android's own backup, Android may include Blimp's settings and history in your device backup. That backup is made by Android and stored in your Google account under Google's privacy policy. Blimp has no access to it. You can turn Android backup off in your phone's settings. Blimp's own backup feature saves a file only where you choose to save it.</p>
+  </section>
+
+  <section>
+    <h2>Android Auto and sharing</h2>
+    <p>If you connect to Android Auto, Blimp shows your music in your car's display through Android. When you choose to share a song, Android's share menu or Windows' share panel sends the file to the app you pick. Both happen only when you use them, and Blimp itself doesn't send data anywhere.</p>
+  </section>
+
+  <section>
+    <h2>Children</h2>
+    <p>Blimp doesn't collect personal information from anyone, including children under 13.</p>
+  </section>
+
+  <section>
+    <h2>Changes to this policy</h2>
+    <p>If this policy changes, the new version will be posted on this page with a new effective date. If Blimp ever starts to collect data, this page will say exactly what and why before that version of the app is released.</p>
+  </section>
+
+  <section>
+    <h2>Contact</h2>
+    <p>Questions about this policy can be asked by opening an issue at <a href="https://github.com/BersamaMus/Blimp/issues">github.com/BersamaMus/Blimp/issues</a>.</p>
+  </section>
+
+  <footer>Blimp Privacy Policy · Effective 9 October 2026 · <a href="./">Blimp home</a></footer>
+</main>
