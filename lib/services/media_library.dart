@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 
+import 'desktop_library.dart';
 import 'genres.dart';
 import 'lyrics.dart';
 import 'search_text.dart';
@@ -260,6 +262,7 @@ class MediaLibrary {
   static final _loading = <(int, int), _PendingArtwork>{};
 
   static Future<List<Song>> getSongs() async {
+    if (isDesktop) return DesktopLibrary.getSongs();
     final result = await _channel.invokeListMethod<Map<Object?, Object?>>('getSongs');
     return (result ?? []).map(Song.fromMap).toList();
   }
@@ -302,6 +305,16 @@ class MediaLibrary {
   /// The song's file name, full path and when it was last modified; null if
   /// it can't be read.
   static Future<({String? name, String? path, DateTime? modified})?> getFileInfo(Song song) async {
+    if (isDesktop) {
+      // The scan already has the path; Windows has no media index to ask.
+      final path = song.path;
+      if (path == null) return null;
+      try {
+        return (name: song.fileName, path: path, modified: File(path).lastModifiedSync());
+      } on FileSystemException {
+        return null;
+      }
+    }
     try {
       final map = await _channel.invokeMapMethod<String, Object?>('getFileInfo', {'id': song.id});
       if (map == null || map.isEmpty) return null;
@@ -334,6 +347,7 @@ class MediaLibrary {
   /// songs with [ids] that has one. Slow the first time for each song, as
   /// its tags are read; null if they can't be.
   static Future<Map<int, String>?> getReleaseTypes(List<int> ids) async {
+    if (isDesktop) return null;
     try {
       final types = await _channel.invokeMapMethod<String, String>('getReleaseTypes', {'ids': ids});
       return {
@@ -349,6 +363,7 @@ class MediaLibrary {
   /// Slow the first time for each lossless song, as its file is opened;
   /// empty if they can't be checked.
   static Future<Set<int>> getHiRes(List<Song> songs) async {
+    if (isDesktop) return const {};
     try {
       final ids = await _channel.invokeListMethod<int>('getHiRes', {
         'songs': [
@@ -375,6 +390,7 @@ class MediaLibrary {
 
   /// Sends the song's file to another app, through Android's share sheet.
   static Future<void> shareSong(Song song) async {
+    if (isDesktop) return;
     try {
       await _channel.invokeMethod('shareSong', {'id': song.id, 'title': song.title});
     } on PlatformException {
@@ -384,6 +400,13 @@ class MediaLibrary {
 
   /// Opens the folder holding [path] in the Files app; false if none could.
   static Future<bool> openFolder(String path) async {
+    if (isDesktop) {
+      // Opens its folder in Explorer with the file selected. Explorer wants
+      // backslashes, and exits with 1 even when it opens fine.
+      if (!Platform.isWindows) return false;
+      await Process.run('explorer', ['/select,${path.replaceAll('/', r'\')}']);
+      return true;
+    }
     try {
       return await _channel.invokeMethod<bool>('openFolder', {'path': path}) ?? false;
     } on PlatformException {

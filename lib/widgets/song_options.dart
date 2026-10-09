@@ -4,6 +4,7 @@ import '../screens/app_shell.dart';
 import '../screens/artist_screen.dart';
 import '../screens/collection_screen.dart';
 import '../screens/folder_screen.dart';
+import '../services/desktop_library.dart';
 import '../services/media_library.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
@@ -161,14 +162,16 @@ Future<void> showSongOptions(BuildContext context, Song song, {bool inPlayer = f
                       showSpeedPicker(context);
                     },
                   ),
-                _Option(
-                  icon: Icons.share_outlined,
-                  label: 'Share',
-                  onTap: () {
-                    done(sheetContext);
-                    MediaLibrary.shareSong(song);
-                  },
-                ),
+                // Desktop has no share sheet.
+                if (!isDesktop)
+                  _Option(
+                    icon: Icons.share_outlined,
+                    label: 'Share',
+                    onTap: () {
+                      done(sheetContext);
+                      MediaLibrary.shareSong(song);
+                    },
+                  ),
                 _Option(
                   icon: Icons.info_outline,
                   label: 'Details',

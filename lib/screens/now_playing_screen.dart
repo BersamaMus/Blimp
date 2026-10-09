@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../services/desktop_library.dart';
 import '../services/lyrics.dart';
 import '../services/media_library.dart';
 import '../services/music_controller.dart';
@@ -1051,7 +1052,11 @@ class _PlayerSheetState extends State<_PlayerSheet> with TickerProviderStateMixi
                 controller: tabs,
                 children: [
                   const _UpNextList(),
-                  const VisualizerView(),
+                  // It listens to Android's audio output; desktop has no such hook yet.
+                  if (isDesktop)
+                    const MessageView(icon: Icons.graphic_eq_rounded, text: "The visualizer isn't available on desktop yet.")
+                  else
+                    const VisualizerView(),
                   if (_hadLyrics) lyrics == null ? const SizedBox.shrink() : LyricsView(lyrics: lyrics),
                 ],
               ),

@@ -1,11 +1,13 @@
 import 'dart:convert';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../services/backup.dart';
+import '../services/desktop_library.dart';
 import '../services/device_files.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
@@ -425,6 +427,7 @@ class StorageSettingsScreen extends StatelessWidget {
             ),
           ),
           const Divider(),
+          if (isDesktop) const _MusicFolderTile(),
           _SettingsTile(
             title: 'Rescan device for music',
             subtitle: loading ? 'Scanning…' : 'Find songs added or removed since the last scan',
@@ -679,6 +682,40 @@ class _SwitchTile extends StatelessWidget {
       subtitle: subtitle == null ? null : Text(subtitle!),
       value: value,
       onChanged: onChanged,
+    );
+  }
+}
+
+/// Desktop only: the folder Blimp scans for songs. Picking another scans
+/// it straight away.
+class _MusicFolderTile extends StatefulWidget {
+  const _MusicFolderTile();
+
+  @override
+  State<_MusicFolderTile> createState() => _MusicFolderTileState();
+}
+
+class _MusicFolderTileState extends State<_MusicFolderTile> {
+  late Future<String> _folder = DesktopLibrary.musicFolder();
+
+  Future<void> _pick() async {
+    final picked = await getDirectoryPath(initialDirectory: await _folder, confirmButtonText: 'Use this folder');
+    if (picked == null || !mounted) return;
+    await DesktopLibrary.setMusicFolder(picked);
+    setState(() => _folder = DesktopLibrary.musicFolder());
+    if (mounted) await rescanLibrary(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder(
+      future: _folder,
+      builder: (context, snapshot) => _SettingsTile(
+        title: 'Music folder',
+        // Shown the Windows way, with backslashes.
+        subtitle: snapshot.data?.replaceAll('/', r'\') ?? '',
+        onTap: _pick,
+      ),
     );
   }
 }
