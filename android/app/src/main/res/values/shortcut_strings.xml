@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Long-pressing the app icon. -->
+    <string name="shortcut_shuffle">Shuffle all</string>
+    <string name="shortcut_resume">Resume</string>
+    <string name="shortcut_favourites">Favourites</string>
+</resources>

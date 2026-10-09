@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- audio_service looks these icons up by name at runtime, which the release
+     resource shrinker can't see; without them the playback notification (and
+     so background playback) fails to start in release builds. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/audio_service_*,@drawable/ic_stat_music" />

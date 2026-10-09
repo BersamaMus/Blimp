@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches AppColors.background so launch blends into the dark UI. -->
+    <color name="app_background">#FF000000</color>
+
+    <!-- Home screen widgets, matching the app's palette (lib/theme.dart). -->
+    <color name="widget_background">#F20F0F0F</color>
+    <color name="widget_surface_high">#FF1C1C1C</color>
+    <color name="widget_accent">#FFFACC15</color>
+    <color name="widget_on_accent">#FF1F1A00</color>
+    <color name="widget_text">#FFFFFFFF</color>
+    <color name="widget_text_secondary">#FFADADAD</color>
+</resources>

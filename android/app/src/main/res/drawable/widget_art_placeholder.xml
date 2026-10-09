@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown for songs without artwork: a music note on the art tile, inset so
+     the art view's centerCrop doesn't blow it up to fill the tile. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/widget_surface_high" />
+            <size android:width="96dp" android:height="96dp" />
+        </shape>
+    </item>
+    <item
+        android:bottom="28dp"
+        android:left="28dp"
+        android:right="28dp"
+        android:top="28dp"
+        android:drawable="@drawable/ic_widget_music_note" />
+</layer-list>

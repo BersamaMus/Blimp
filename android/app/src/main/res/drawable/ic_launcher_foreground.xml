@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher icon's mark: five equalizer bars, inside the 66dp safe zone
+     that every launcher's mask keeps. Also the monochrome themed icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:strokeColor="#FF111111"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M36,47.5L36,60.5M45,40.5L45,67.5M54,36.5L54,71.5M63,43.5L63,64.5M72,49.5L72,58.5" />
+</vector>

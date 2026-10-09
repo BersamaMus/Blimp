@@ -1,0 +1,19 @@
+name: engine_hooks
+description: "Lets the Blimp app set up its own channels on every Flutter engine, including ones started without its screen."
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.blimp.engine_hooks
+        pluginClass: EngineHooksPlugin
