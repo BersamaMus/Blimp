@@ -3,10 +3,23 @@
 A good-looking offline music player for Android and Windows. Blimp plays the
 music already on your device: no accounts, no ads, no internet.
 
+## Screenshots
+
+### Windows
+
 <p>
-  <img src="store_listing/screenshots/01_home.png" width="240" alt="Home">
-  <img src="store_listing/screenshots/02_player.png" width="240" alt="Now playing">
-  <img src="store_listing/screenshots/03_visualizer.png" width="240" alt="Visualizer">
+  <img src="docs/img/windows-home.png" width="49%" alt="Blimp on Windows: Home">
+  <img src="docs/img/windows-player.png" width="49%" alt="Blimp on Windows: now playing">
+</p>
+
+### Android
+
+<p>
+  <img src="store_listing/screenshots/01_home.png" width="19%" alt="Blimp on Android: Home">
+  <img src="store_listing/screenshots/02_player.png" width="19%" alt="Blimp on Android: now playing">
+  <img src="store_listing/screenshots/03_visualizer.png" width="19%" alt="Blimp on Android: visualizer">
+  <img src="store_listing/screenshots/04_library.png" width="19%" alt="Blimp on Android: library">
+  <img src="store_listing/screenshots/05_queue.png" width="19%" alt="Blimp on Android: queue">
 </p>
 
 ## Download
