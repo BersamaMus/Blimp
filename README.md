@@ -1,17 +1,75 @@
-# better_music_player
+# Blimp
 
-A new Flutter project.
+A good-looking offline music player for Android and Windows. Blimp plays the
+music already on your device: no accounts, no ads, no internet.
 
-## Getting Started
+<p>
+  <img src="store_listing/screenshots/01_home.png" width="240" alt="Home">
+  <img src="store_listing/screenshots/02_player.png" width="240" alt="Now playing">
+  <img src="store_listing/screenshots/03_visualizer.png" width="240" alt="Visualizer">
+</p>
 
-This project is a starting point for a Flutter application.
+## Download
 
-A few resources to get you started if this is your first Flutter project:
+- **Windows 10 and 11:** get `Blimp-Setup.exe` from the
+  [latest release](../../releases/latest).
+- **Android:** coming soon to Google Play.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Windows may warn that the installer is from an unknown publisher. Click
+**More info**, then **Run anyway**.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Features
+
+- **Live visualizer:** Bars, Mirror, Wave, Radial and Pulse styles.
+- **Synced lyrics:** read from your files' tags or from `.lrc` files beside them.
+  Tap a line to jump to it.
+- **Sound:** hi-res badges, volume normalisation (ReplayGain), crossfade,
+  an equalizer, skip silence, and playback speed.
+- **Library:** browse by songs, albums, artists, playlists, genres or folders.
+  Albums are sorted into Albums, EPs, Singles and Compilations. Search ignores
+  accents. Playlists import and export as M3U.
+- **Listening stats:** top songs, artists and genres, and listening time.
+- **Backups:** save your playlists, favourites, history, stats and settings to
+  one file, and restore them on another device.
+- **Private:** Blimp never goes online and collects nothing.
+
+### On Windows
+
+- Scans a music folder (Music by default; you can change it in Settings).
+- Media keys and Windows' media flyout.
+- Keeps playing in the system tray when you close the window.
+- Pauses when headphones are unplugged.
+- Keyboard shortcuts: Space plays and pauses, Ctrl+Left and Ctrl+Right skip,
+  Ctrl+F searches.
+
+### On Android
+
+- Android Auto, home screen widgets, lock screen controls, and a sleep timer.
+
+## Building from source
+
+You need [Flutter](https://docs.flutter.dev/get-started/install) (Dart SDK
+3.13 or newer).
+
+```sh
+flutter pub get
+flutter run                 # on a connected Android phone or emulator
+flutter run -d windows      # on Windows
+```
+
+To build the Windows installer, install Inno Setup
+(`winget install JRSoftware.InnoSetup`) and run:
+
+```powershell
+powershell -File windows\installer\build_installer.ps1
+```
+
+The installer is saved to `build\installer\`.
+
+## License
+
+Copyright © 2026 Mustaqim. All rights reserved.
+
+You're welcome to read the source code here. You may not copy, modify or
+redistribute it without permission. The bundled package in
+`packages/just_audio_background` keeps its own license.
