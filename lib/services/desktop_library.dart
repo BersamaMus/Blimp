@@ -114,22 +114,28 @@ abstract final class DesktopLibrary {
   /// The song's cover at most [size] pixels across, as PNG; null if it has
   /// none. Covers are read from the file (or one beside it) and shrunk once,
   /// then kept on disk, as reading and shrinking them takes a moment.
-  static Future<Uint8List?> artwork(int songId, int size) async {
+  static Future<Uint8List?> artwork(int songId, int size) async => (await _artworkFile(songId, size))?.readAsBytes();
+
+  /// Where the song's cover at [size] is saved, for Windows' media controls,
+  /// which take a file; null if it has none.
+  static Future<String?> artworkPath(int songId, int size) async => (await _artworkFile(songId, size))?.path;
+
+  /// The saved PNG of the song's cover at [size], made if it isn't yet;
+  /// null if the song has no cover.
+  static Future<File?> _artworkFile(int songId, int size) async {
     final details = _details[songId];
     final path = details?['path'] as String?;
     if (path == null) return null;
     // Named by when the song's file changed, so a new cover is picked up.
     final cached = File('${await _cachePath()}/artwork/${songId}_${size}_${details!['dateAdded']}.png');
-    if (await cached.exists()) {
-      final bytes = await cached.readAsBytes();
-      // Empty means it was looked for before and has none.
-      return bytes.isEmpty ? null : bytes;
+    if (!await cached.exists()) {
+      final original = await Isolate.run(() => _readCover(path));
+      final shrunk = original == null ? null : await _shrink(original, size);
+      await cached.parent.create(recursive: true);
+      await cached.writeAsBytes(shrunk ?? Uint8List(0));
     }
-    final original = await Isolate.run(() => _readCover(path));
-    final shrunk = original == null ? null : await _shrink(original, size);
-    await cached.parent.create(recursive: true);
-    await cached.writeAsBytes(shrunk ?? Uint8List(0));
-    return shrunk;
+    // Empty means it was looked for before and has none.
+    return await cached.length() == 0 ? null : cached;
   }
 
   static Uint8List? _readCover(String path) {

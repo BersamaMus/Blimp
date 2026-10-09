@@ -100,6 +100,21 @@ ThemeData buildTheme() {
         ),
       ),
     ),
+    // The tabs down the side of a wide window, styled as the bottom bar.
+    navigationRailTheme: NavigationRailThemeData(
+      backgroundColor: AppColors.surfaceHigh,
+      indicatorColor: AppColors.accentSoft,
+      indicatorShape: stadium,
+      labelType: NavigationRailLabelType.all,
+      selectedIconTheme: const IconThemeData(size: 24, color: AppColors.accent),
+      unselectedIconTheme: const IconThemeData(size: 24, color: AppColors.textSecondary),
+      selectedLabelTextStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.accent),
+      unselectedLabelTextStyle: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: AppColors.textSecondary,
+      ),
+    ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: AppColors.accent,

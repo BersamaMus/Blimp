@@ -130,7 +130,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> with SingleTickerPr
             ),
             child: Material(
               type: MaterialType.transparency,
-              child: SafeArea(child: _PlayerBody(song: song)),
+              // Centred, so a wide window doesn't stretch the controls across.
+              child: SafeArea(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 640),
+                    child: _PlayerBody(song: song),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
