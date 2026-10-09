@@ -85,7 +85,48 @@ class DesktopMediaControls {
         await _music.skipToPrevious();
       case ('seek', final int ms):
         await player.seek(Duration(milliseconds: ms));
+      case ('output', 'gone'):
+        await _onOutputGone();
+      case ('output', 'back'):
+        await _onOutputBack();
     }
+  }
+
+  /// Some laptops turn their speakers off as headphones are plugged in,
+  /// which looks just like the headphones being unplugged: an output coming
+  /// on this close to one going means it was a plug-in.
+  static const _plugInWindow = Duration(seconds: 2);
+
+  /// When an output last came on, and when music was last paused because
+  /// the playing one went.
+  final _sinceOutputBack = Stopwatch();
+  final _sincePausedForOutput = Stopwatch();
+
+  /// The headphones (or speakers) playing were unplugged: pauses, as a
+  /// phone does, unless another output just came on.
+  Future<void> _onOutputGone() async {
+    final player = _music.player;
+    if (!player.playing) return;
+    if (_sinceOutputBack.isRunning && _sinceOutputBack.elapsed < _plugInWindow) return;
+    _sincePausedForOutput
+      ..reset()
+      ..start();
+    await player.pause();
+  }
+
+  /// An output came on: if music was just paused for one going, that was a
+  /// plug-in after all, so it plays on.
+  Future<void> _onOutputBack() async {
+    _sinceOutputBack
+      ..reset()
+      ..start();
+    if (!_sincePausedForOutput.isRunning || _sincePausedForOutput.elapsed > _plugInWindow) return;
+    _sincePausedForOutput
+      ..stop()
+      ..reset();
+    final player = _music.player;
+    // Unless it's been played again already.
+    if (!player.playing) unawaited(player.play());
   }
 
   static Future<void> _invoke(String method, [Object? arguments]) async {

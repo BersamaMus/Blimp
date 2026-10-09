@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../services/backup.dart';
 import '../services/desktop_library.dart';
+import '../services/desktop_window.dart';
 import '../services/device_files.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
@@ -428,6 +430,7 @@ class StorageSettingsScreen extends StatelessWidget {
           ),
           const Divider(),
           if (isDesktop) const _MusicFolderTile(),
+          if (Platform.isWindows) const _CloseActionTile(),
           _SettingsTile(
             title: 'Rescan device for music',
             subtitle: loading ? 'Scanning…' : 'Find songs added or removed since the last scan',
@@ -715,6 +718,36 @@ class _MusicFolderTileState extends State<_MusicFolderTile> {
         // Shown the Windows way, with backslashes.
         subtitle: snapshot.data?.replaceAll('/', r'\') ?? '',
         onTap: _pick,
+      ),
+    );
+  }
+}
+
+/// Whether closing the window keeps Blimp playing in the tray, or quits it.
+class _CloseActionTile extends StatelessWidget {
+  const _CloseActionTile();
+
+  static String _label(CloseAction action) => switch (action) {
+    CloseAction.ask => 'Ask every time',
+    CloseAction.background => 'Keep playing in the background',
+    CloseAction.quit => 'Quit Blimp',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder(
+      valueListenable: DesktopWindow.closeAction,
+      builder: (context, action, _) => _SettingsTile(
+        title: 'When the window is closed',
+        subtitle: _label(action),
+        onTap: () => _pickOption(
+          context,
+          title: 'When the window is closed',
+          options: const [CloseAction.ask, CloseAction.background, CloseAction.quit],
+          selected: action,
+          label: _label,
+          onPicked: DesktopWindow.setCloseAction,
+        ),
       ),
     );
   }

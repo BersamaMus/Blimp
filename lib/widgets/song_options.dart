@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../screens/app_shell.dart';
@@ -162,8 +164,8 @@ Future<void> showSongOptions(BuildContext context, Song song, {bool inPlayer = f
                       showSpeedPicker(context);
                     },
                   ),
-                // Desktop has no share sheet.
-                if (!isDesktop)
+                // Of the desktops, only Windows has a share panel.
+                if (!isDesktop || Platform.isWindows)
                   _Option(
                     icon: Icons.share_outlined,
                     label: 'Share',

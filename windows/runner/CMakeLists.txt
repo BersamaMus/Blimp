@@ -8,7 +8,13 @@ project(runner LANGUAGES CXX)
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
+  "background.cpp"
   "media_controls.cpp"
+  "output_watch.cpp"
+  "share.cpp"
+  "visualizer.cpp"
+  "waveform.cpp"
+  "window_placement.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -37,6 +43,10 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 # Windows Runtime, for the media controls (C++/WinRT).
 target_link_libraries(${BINARY_NAME} PRIVATE "windowsapp.lib")
+# Media Foundation, to decode songs for the waveform seek bar.
+target_link_libraries(${BINARY_NAME} PRIVATE "mfplat.lib" "mfreadwrite.lib" "mfuuid.lib")
+# Core Audio's process loopback, for the visualizer.
+target_link_libraries(${BINARY_NAME} PRIVATE "mmdevapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

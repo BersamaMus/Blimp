@@ -121,6 +121,12 @@ MediaControls::~MediaControls() {
 }
 
 void MediaControls::HandlePress(WPARAM wparam, LPARAM lparam) {
+  if (wparam == kOutputGone || wparam == kOutputBack) {
+    channel_->InvokeMethod(
+        "output", std::make_unique<EncodableValue>(
+                      std::string(wparam == kOutputGone ? "gone" : "back")));
+    return;
+  }
   if (wparam == kSeek) {
     channel_->InvokeMethod(
         "seek", std::make_unique<EncodableValue>(static_cast<int64_t>(lparam)));

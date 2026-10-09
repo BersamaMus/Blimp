@@ -192,12 +192,14 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   static const _autoplayKey = 'autoplay';
   static const _queueKey = 'queue_song_ids';
   static const _queueIndexKey = 'queue_index';
+  static const _unshuffledKey = 'queue_unshuffled_ids';
   static const _playlistsKey = 'playlists';
   static const _hiddenFoldersKey = 'hidden_folders';
   static const _minSongSecondsKey = 'min_song_seconds';
   static const _speedKey = 'playback_speed';
   static const _normalizeKey = 'normalize_volume';
   static const _fadeKey = 'fade_seconds';
+  static const _volumeKey = 'volume';
   static const _historyLimit = 100;
 
   static const seekSecondsOptions = [5, 10, 15, 20, 30, 60];
@@ -293,6 +295,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _sequenceSub.cancel();
     _seekSub.cancel();
     _indexSub.cancel();
+    volume.dispose();
+    _shufflingChanges.close();
     player.dispose();
     super.dispose();
   }
@@ -665,6 +669,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     speed = prefs.getDouble(_speedKey) ?? 1;
     normalizeVolume = prefs.getBool(_normalizeKey) ?? false;
     fadeSeconds = prefs.getInt(_fadeKey) ?? 0;
+    volume.value = prefs.getDouble(_volumeKey) ?? 1;
+    if (volume.value != 1) _applyVolume();
     _equalizerGains = (prefs.getStringList(_equalizerGainsKey) ?? const [])
         .map(double.tryParse)
         .map((g) => g ?? 0)
@@ -1069,11 +1075,24 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   double _gainVolume = 1, _fadeVolume = 1, _sleepVolume = 1;
   double? _volumeSent;
 
+  /// The app's own volume, 0 to 1, under the system's: the desktop mini
+  /// player's slider. Phones leave it at 1 and use their volume buttons.
+  final volume = ValueNotifier<double>(1);
+
+  /// Sets [volume]; [save] false while a slider is still being dragged.
+  void setVolume(double value, {bool save = true}) {
+    volume.value = value.clamp(0.0, 1.0);
+    if (save) _prefs?.setDouble(_volumeKey, volume.value);
+    _applyVolume();
+  }
+
   void _applyVolume() {
-    final volume = (_gainVolume * _fadeVolume * _sleepVolume).clamp(0.0, 1.0);
-    if (_volumeSent != null && (volume - _volumeSent!).abs() < 0.005) return;
-    _volumeSent = volume;
-    player.setVolume(volume);
+    // Squared, so the slider's steps sound about even: loudness isn't linear.
+    final user = volume.value * volume.value;
+    final level = (user * _gainVolume * _fadeVolume * _sleepVolume).clamp(0.0, 1.0);
+    if (_volumeSent != null && (level - _volumeSent!).abs() < 0.005) return;
+    _volumeSent = level;
+    player.setVolume(level);
   }
 
   void _setSleepVolume(double volume) {
@@ -1438,6 +1457,10 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     final end = min(list.length, index + _batchSize);
     _upcoming = list.sublist(end);
     await player.setShuffleModeEnabled(false);
+    if (_unshuffled != null) {
+      _unshuffled = null;
+      _shufflingChanges.add(false);
+    }
     await _setQueue(list.sublist(start, end).map(_source).toList(), index: index - start);
     player.play();
     await _topUpQueue();
@@ -1474,6 +1497,62 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   /// The loaded queue's shuffle order, which [moveInQueue] changes.
   QueueShuffleOrder? _shuffleOrder;
 
+  /// Whether shuffle is on, as the shuffle button shows it.
+  bool get shuffling => isDesktop ? _unshuffled != null : player.shuffleModeEnabled;
+
+  /// [shuffling]'s changes.
+  Stream<bool> get shufflingStream => isDesktop ? _shufflingChanges.stream : player.shuffleModeEnabledStream;
+  final _shufflingChanges = StreamController<bool>.broadcast();
+
+  /// On desktop, the user's songs still to come (queued, then [_upcoming])
+  /// in the order they had before shuffle; null with shuffle off. The
+  /// media_kit player there has no shuffle order of its own to follow
+  /// just_audio's, so shuffle reorders the songs themselves instead.
+  List<Song>? _unshuffled;
+
+  Future<void> toggleShuffle() async {
+    if (!isDesktop) {
+      final enabled = player.shuffleModeEnabled;
+      if (!enabled) await player.shuffle();
+      return player.setShuffleModeEnabled(!enabled);
+    }
+    // Mid-change, the queue and [_upcoming] are out of step: a batch taken
+    // from [_upcoming] but not added yet would be queued twice.
+    if (_toppingUp || _settingQueue) return;
+    // The user's songs after the current one; autoplay's stay where they are.
+    final from = (player.currentIndex ?? -1) + 1;
+    final to = max(from, autoplayStart);
+    final queued = [for (final source in player.sequence.sublist(from, to)) ?songOf(source)];
+    if (queued.length != to - from) return;
+    final rest = [...queued, ..._upcoming];
+    final List<Song> order;
+    if (_unshuffled case final unshuffled?) {
+      // Back in the order they had; songs queued since keep their places.
+      final rank = <Song, int>{};
+      for (final (i, song) in unshuffled.indexed) {
+        rank.putIfAbsent(song, () => i);
+      }
+      final known = [for (final song in rest) if (rank.containsKey(song)) song]
+        ..sort((a, b) => rank[a]!.compareTo(rank[b]!));
+      var k = 0;
+      order = [for (final song in rest) rank.containsKey(song) ? known[k++] : song];
+      _unshuffled = null;
+    } else {
+      _unshuffled = rest;
+      order = [...rest]..shuffle();
+    }
+    _shufflingChanges.add(shuffling);
+    // Kept from topping up while the queue is briefly short.
+    _toppingUp = true;
+    try {
+      _upcoming = order.sublist(queued.length);
+      if (to > from) await player.removeAudioSourceRange(from, to);
+      await player.insertAudioSources(from, order.take(queued.length).map(_source).toList());
+    } finally {
+      _toppingUp = false;
+    }
+  }
+
   /// Moves the song [from] one place in Up next to another, [to] counted
   /// after it's taken out; both are places in play order, so shuffled or not.
   Future<void> moveInQueue(int from, int to) async {
@@ -1509,6 +1588,15 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     }
     prefs.setStringList(_queueKey, ids);
     prefs.setInt(_queueIndexKey, index);
+    // Desktop shuffle's order to go back to, for the songs saved above (the
+    // rest of a long list doesn't come back).
+    final unshuffled = _unshuffled;
+    if (unshuffled == null) {
+      prefs.remove(_unshuffledKey);
+    } else {
+      final queued = {for (final source in sequence) ?songOf(source)};
+      prefs.setStringList(_unshuffledKey, [for (final song in unshuffled) if (queued.contains(song)) '${song.id}']);
+    }
   }
 
   /// Loads the queue saved by [_saveQueue], paused at the start of the song
@@ -1545,6 +1633,12 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       }
       // Coming back to a song isn't playing it again.
       _lastRecordedId = current?.id;
+      // Shuffled on desktop: still on, with the order to go back to.
+      final ids = isDesktop ? prefs.getStringList(_unshuffledKey) : null;
+      if (ids != null) {
+        _unshuffled = [for (final id in ids) ?_scannedById[int.tryParse(id)]];
+        _shufflingChanges.add(true);
+      }
       await _setQueue(sources, index: index);
     } catch (_) {
       // Couldn't load it: start empty, as before there was anything to restore.

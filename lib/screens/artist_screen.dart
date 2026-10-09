@@ -1,12 +1,15 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../services/music_controller.dart';
 import '../theme.dart';
 import '../widgets/shelf.dart';
 import '../widgets/song_artwork.dart';
-import '../widgets/song_tile.dart';
+import '../widgets/song_pager.dart';
 import 'app_shell.dart';
 import '../widgets/cards.dart';
+import 'collection_screen.dart';
 import 'search_screen.dart';
 
 /// Opens the page of one of [artists], those credited on a song or album:
@@ -86,7 +89,11 @@ class _ArtistScreenState extends State<ArtistScreen> {
     }
 
     final textTheme = Theme.of(context).textTheme;
-    final width = MediaQuery.sizeOf(context).width;
+    final size = MediaQuery.sizeOf(context);
+    // Nearly square on a phone. A wide window crops it to a banner, as
+    // YouTube Music does, kept to under half the window's height.
+    final bannerHeight = min(size.width * 0.95, max(280.0, size.height * 0.45));
+    final wide = DesktopFrame.showsTabs(context);
 
     final songs = artist.songs;
     // Radio starts from the artist's most played song.
@@ -135,7 +142,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           SizedBox(
-            height: width * 0.95,
+            height: bannerHeight,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -150,6 +157,16 @@ class _ArtistScreenState extends State<ArtistScreen> {
                     ),
                   ),
                 ),
+                // A banner's left side darkened too, behind the name.
+                if (wide)
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xCC000000), Colors.transparent],
+                        stops: [0, 0.6],
+                      ),
+                    ),
+                  ),
                 Positioned(
                   left: 16,
                   right: 16,
@@ -192,13 +209,16 @@ class _ArtistScreenState extends State<ArtistScreen> {
               ],
             ),
           ),
-          const ShelfHeader(title: 'Songs'),
-          for (final (i, song) in songs.indexed)
-            SongTile(
-              song: song,
-              subtitle: song.album,
-              onTap: () => music.playSongs(songs, index: i),
-            ),
+          ShelfHeader(
+            title: 'Songs',
+            actionLabel: songs.length > SongPager.shown ? 'Show all' : null,
+            onAction: () => openPage(CollectionScreen.artistSongs(artist)),
+          ),
+          SongPager(
+            songs: songs.take(SongPager.shown).toList(),
+            subtitleOf: (song) => song.album,
+            onTap: (i) => music.playSongs(songs, index: i),
+          ),
           if (albums.isNotEmpty) albumShelf('Albums', albums),
           if (singles.isNotEmpty) albumShelf('Singles & EPs', singles),
         ],

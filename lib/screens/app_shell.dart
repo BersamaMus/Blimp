@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../services/desktop_library.dart';
+import '../services/desktop_window.dart';
 import '../services/home_widgets.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
@@ -17,6 +17,10 @@ import 'stats_screen.dart';
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellKey = GlobalKey<_AppShellState>();
 
+/// The tab showing; shared with [DesktopFrame]'s side tabs, which are
+/// outside the shell.
+final _currentTab = ValueNotifier<int>(0);
+
 /// Opens [page] in the current tab, closing the player or any sheet first,
 /// so album and artist pages keep the tab bar and mini player.
 void openPage(Widget page) => openRoute(MaterialPageRoute(builder: (_) => page));
@@ -29,8 +33,9 @@ void openRoute(Route<void> route) => _shellKey.currentState?.openRoute(route);
 const wideLayoutWidth = 840.0;
 
 /// How wide pages and the mini player get in a wide window, so lines stay
-/// readable.
-const readableWidth = 960.0;
+/// readable. Wide enough to fill a 16:9 screen once WindowScale has zoomed
+/// the UI; only wider windows, like ultrawides, leave space at the sides.
+const readableWidth = 1400.0;
 
 /// Switches to the Stats tab, closing the player or any sheet first.
 void openStatsTab() => _shellKey.currentState?._showTab(2);
@@ -55,7 +60,15 @@ class _AppShellState extends State<AppShell> {
   ];
 
   final _navigatorKeys = [for (final _ in _tabs) GlobalKey<NavigatorState>()];
-  int _tab = 0;
+  @override
+  void dispose() {
+    _currentTab.removeListener(_onTab);
+    super.dispose();
+  }
+
+  void _onTab() => setState(() {});
+
+  int get _tab => _currentTab.value;
 
   NavigatorState get _currentNavigator => _navigatorKeys[_tab].currentState!;
 
@@ -63,6 +76,7 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     HomeWidgets.onRequest(_onWidgetRequest);
+    _currentTab.addListener(_onTab);
   }
 
   /// A home screen widget opened the app: does what it asked once the last
@@ -94,15 +108,21 @@ class _AppShellState extends State<AppShell> {
 
   void _showTab(int index) {
     rootNavigatorKey.currentState!.popUntil((route) => route.isFirst);
-    setState(() => _tab = index);
+    _currentTab.value = index;
   }
 
   void _selectTab(int index) {
-    if (index == _tab) {
+    // From the side tabs, which stay clickable with the player or a sheet
+    // open: that closes, and the tab shows as it was left.
+    final root = rootNavigatorKey.currentState!;
+    if (root.canPop()) {
+      root.popUntil((route) => route.isFirst);
+      _currentTab.value = index;
+    } else if (index == _tab) {
       // Tapping the current tab again returns to its first page.
       _currentNavigator.popUntil((route) => route.isFirst);
     } else {
-      setState(() => _tab = index);
+      _currentTab.value = index;
     }
   }
 
@@ -111,7 +131,7 @@ class _AppShellState extends State<AppShell> {
     if (_currentNavigator.canPop()) {
       _currentNavigator.pop();
     } else if (_tab != 0) {
-      setState(() => _tab = 0);
+      _currentTab.value = 0;
     } else {
       SystemNavigator.pop();
     }
@@ -170,15 +190,12 @@ class _AppShellState extends State<AppShell> {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: _handleBack,
-      child: LayoutBuilder(
-        builder: (context, constraints) =>
-            isDesktop && constraints.maxWidth >= wideLayoutWidth ? _wideLayout(body) : _narrowLayout(context, body),
-      ),
+      child: DesktopFrame.showsTabs(context) ? _wideLayout(body) : _narrowLayout(context, body),
     );
   }
 
-  /// A desktop window: the tabs down the left side, and the pages and mini
-  /// player kept to a readable width beside them.
+  /// A wide desktop window: the pages and mini player kept to a readable
+  /// width, beside [DesktopFrame]'s tabs.
   Widget _wideLayout(Widget body) {
     Widget readable(Widget child) => Align(
       alignment: Alignment.topCenter,
@@ -188,29 +205,10 @@ class _AppShellState extends State<AppShell> {
       ),
     );
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          NavigationRail(
-            selectedIndex: _tab,
-            onDestinationSelected: _selectTab,
-            groupAlignment: -0.9,
-            destinations: [
-              for (final tab in _tabs)
-                NavigationRailDestination(
-                  icon: Icon(tab.icon),
-                  selectedIcon: Icon(tab.selectedIcon),
-                  label: Text(tab.label),
-                ),
-            ],
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                Expanded(child: readable(body)),
-                Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: readable(const MiniPlayer())),
-              ],
-            ),
-          ),
+          Expanded(child: readable(body)),
+          Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: readable(const MiniPlayer())),
         ],
       ),
     );
@@ -265,4 +263,91 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
+}
+
+/// Around the app's navigator on desktop. In a wide window the tabs run down
+/// the left side out here, so the player, sheets and dialogs open beside
+/// them rather than over them, and they can always be clicked.
+class DesktopFrame extends StatelessWidget {
+  const DesktopFrame({super.key, required this.child});
+
+  final Widget child;
+
+  /// Whether the tabs are down the side: pages lay out for a wide window.
+  static bool showsTabs(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_SideTabs>()?.shown ?? false;
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= wideLayoutWidth;
+        // The same shape either way, with the tabs added or taken away, so
+        // the app below isn't rebuilt as the window crosses the width.
+        return Material(
+          color: AppColors.background,
+          child: Row(
+            children: [
+              if (wide)
+                // Its own overlay for the Quit button's tooltip: the frame
+                // is above the Navigator, whose overlay the pages use.
+                Overlay.wrap(
+                  child: ValueListenableBuilder(
+                    valueListenable: _currentTab,
+                    builder: (context, tab, _) => NavigationRail(
+                      selectedIndex: tab,
+                      onDestinationSelected: (i) => _shellKey.currentState?._selectTab(i),
+                      groupAlignment: -0.9,
+                      // At the bottom, away from the tabs.
+                      trailing: Expanded(
+                        child: Align(
+                          alignment: Alignment.bottomCenter,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: IconButton(
+                              tooltip: 'Quit',
+                              icon: const Icon(Icons.power_settings_new_rounded),
+                              color: AppColors.textSecondary,
+                              onPressed: DesktopWindow.quit,
+                            ),
+                          ),
+                        ),
+                      ),
+                      destinations: [
+                        for (final tab in _AppShellState._tabs)
+                          NavigationRailDestination(
+                            icon: Icon(tab.icon),
+                            selectedIcon: Icon(tab.selectedIcon),
+                            label: Text(tab.label),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: LayoutBuilder(
+                  // Pages see the room beside the tabs as the window.
+                  builder: (context, area) => MediaQuery(
+                    data: media.copyWith(size: area.biggest),
+                    child: _SideTabs(shown: wide, child: child),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Tells what's beside [DesktopFrame] whether its tabs are showing.
+class _SideTabs extends InheritedWidget {
+  const _SideTabs({required this.shown, required super.child});
+
+  final bool shown;
+
+  @override
+  bool updateShouldNotify(_SideTabs old) => old.shown != shown;
 }

@@ -20,6 +20,12 @@ class MediaControls {
   // window as this message and handed to Dart on the UI thread.
   static constexpr UINT kPressMessage = WM_APP + 1;
 
+  // Posted as a kPressMessage's WPARAM by OutputWatch: the output playing
+  // went (unplugged, disconnected), or an output came on. Dart decides
+  // whether to pause, or to play again.
+  static constexpr WPARAM kOutputGone = 0x101;
+  static constexpr WPARAM kOutputBack = 0x102;
+
   MediaControls(flutter::BinaryMessenger* messenger, HWND window);
   ~MediaControls();
 

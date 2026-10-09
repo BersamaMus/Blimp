@@ -173,8 +173,9 @@ class Shelf extends StatelessWidget {
 }
 
 /// Artwork with a title and subtitle beneath, as used for albums and
-/// (with [circle]) artists.
-class MediaCard extends StatelessWidget {
+/// (with [circle]) artists. Under a mouse, the artwork lifts a little and,
+/// given [onPlay], shows a play button.
+class MediaCard extends StatefulWidget {
   const MediaCard({
     super.key,
     required this.art,
@@ -184,6 +185,7 @@ class MediaCard extends StatelessWidget {
     this.circle = false,
     this.onTap,
     this.onLongPress,
+    this.onPlay,
     this.hiRes = false,
   });
 
@@ -196,42 +198,98 @@ class MediaCard extends StatelessWidget {
   /// Shows a [HiResBadge] before the subtitle.
   final bool hiRes;
   final VoidCallback? onTap;
+
+  /// Also on a right-click.
   final VoidCallback? onLongPress;
+
+  /// Plays it straight away, from the button shown while hovered.
+  final VoidCallback? onPlay;
+
+  @override
+  State<MediaCard> createState() => _MediaCardState();
+}
+
+class _MediaCardState extends State<MediaCard> {
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final MediaCard(:width, :circle, :title, :subtitle, :hiRes, :onPlay) = widget;
+    const fade = Duration(milliseconds: 150);
     return SizedBox(
       width: width,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Column(
-          crossAxisAlignment: circle ? CrossAxisAlignment.center : CrossAxisAlignment.start,
-          children: [
-            SizedBox.square(dimension: width, child: art),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              maxLines: circle ? 1 : 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: circle ? TextAlign.center : TextAlign.start,
-              style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600, height: 1.25),
-            ),
-            if (subtitle != null)
-              HiResLine(
-                hiRes: hiRes,
-                center: circle,
-                line: Text(
-                  subtitle!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: circle ? TextAlign.center : TextAlign.start,
-                  style: textTheme.bodyMedium,
+      child: MouseRegion(
+        cursor: widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
+          onSecondaryTap: widget.onLongPress,
+          child: Column(
+            crossAxisAlignment: circle ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+            children: [
+              SizedBox.square(
+                dimension: width,
+                child: AnimatedScale(
+                  scale: _hovered ? 1.04 : 1,
+                  duration: fade,
+                  curve: Curves.easeOut,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      widget.art,
+                      if (onPlay != null)
+                        Positioned(
+                          right: 8,
+                          bottom: 8,
+                          child: AnimatedOpacity(
+                            opacity: _hovered ? 1 : 0,
+                            duration: fade,
+                            child: IgnorePointer(
+                              ignoring: !_hovered,
+                              child: IconButton.filled(
+                                tooltip: 'Play',
+                                style: IconButton.styleFrom(
+                                  backgroundColor: AppColors.accent,
+                                  foregroundColor: AppColors.onAccent,
+                                  elevation: 4,
+                                  shadowColor: Colors.black,
+                                ),
+                                icon: const Icon(Icons.play_arrow_rounded),
+                                onPressed: onPlay,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-          ],
+              const SizedBox(height: 10),
+              Text(
+                title,
+                maxLines: circle ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: circle ? TextAlign.center : TextAlign.start,
+                style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600, height: 1.25),
+              ),
+              if (subtitle != null)
+                HiResLine(
+                  hiRes: hiRes,
+                  center: circle,
+                  line: Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: circle ? TextAlign.center : TextAlign.start,
+                    style: textTheme.bodyMedium,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

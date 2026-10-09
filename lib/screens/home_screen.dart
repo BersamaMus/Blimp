@@ -9,7 +9,7 @@ import '../widgets/app_menu.dart';
 import '../widgets/shelf.dart';
 import '../widgets/song_artwork.dart';
 import '../widgets/song_options.dart';
-import '../widgets/song_tile.dart';
+import '../widgets/song_pager.dart';
 import 'app_shell.dart';
 import 'collection_screen.dart';
 import 'now_playing_screen.dart';
@@ -21,7 +21,7 @@ class HomeScreen extends StatelessWidget {
 
   /// How many Quick picks are listed; playing them carries on through the
   /// whole library.
-  static const _shownPicks = _QuickPicksPager.rows * _QuickPicksPager.columns;
+  static const _shownPicks = SongPager.shown;
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +84,14 @@ class HomeScreen extends StatelessWidget {
                 onAction: music.playQuickPicks,
               ),
             ),
-            SliverToBoxAdapter(child: _QuickPicksPager(picks: picks.take(_shownPicks).toList())),
+            SliverToBoxAdapter(
+              child: SongPager(
+                songs: picks.take(_shownPicks).toList(),
+                showFavourite: true,
+                // A radio of that song, not the whole list.
+                onTap: (i) => music.startRadio(picks[i]),
+              ),
+            ),
             SliverToBoxAdapter(
               child: ShelfHeader(
                 title: 'History',
@@ -158,6 +165,7 @@ class _SongRow extends StatelessWidget {
         hiRes: music.isHiRes(songs[i]),
         onTap: () => playAndOpen(context, () => music.playSongs(songs, index: i)),
         onLongPress: () => showSongOptions(context, songs[i]),
+        onPlay: () => music.playSongs(songs, index: i),
       ),
     );
   }
@@ -178,74 +186,6 @@ class _EmptyHistory extends StatelessWidget {
           const SizedBox(width: 14),
           Expanded(child: Text('Songs you play will show up here.', style: Theme.of(context).textTheme.bodyMedium)),
         ],
-      ),
-    );
-  }
-}
-
-/// Quick picks laid out in columns of [rows] songs, one
-/// column across the screen with the next peeking in at the edge, swiped
-/// sideways to see the others.
-class _QuickPicksPager extends StatefulWidget {
-  const _QuickPicksPager({required this.picks});
-
-  final List<Song> picks;
-
-  static const rows = 5;
-  static const columns = 3;
-
-  /// A song row's height: its 52 px artwork and 8 px above and below.
-  static const _rowHeight = 68.0;
-
-  @override
-  State<_QuickPicksPager> createState() => _QuickPicksPagerState();
-}
-
-class _QuickPicksPagerState extends State<_QuickPicksPager> {
-  // A little under the full width, so the next column shows it's there.
-  final _controller = PageController(viewportFraction: 0.9);
-
-  @override
-  void didUpdateWidget(_QuickPicksPager old) {
-    super.didUpdateWidget(old);
-    // A fresh set of picks starts from its first column.
-    if (old.picks.firstOrNull != widget.picks.firstOrNull && _controller.hasClients) {
-      _controller.jumpToPage(0);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final music = MusicScope.read(context);
-    final picks = widget.picks;
-    const rows = _QuickPicksPager.rows;
-    final columns = (picks.length / rows).ceil();
-
-    return SizedBox(
-      height: MediaQuery.textScalerOf(context).scale(_QuickPicksPager._rowHeight) * rows,
-      child: PageView.builder(
-        controller: _controller,
-        padEnds: false,
-        itemCount: columns,
-        itemBuilder: (context, column) => Column(
-          children: [
-            for (final song in picks.skip(column * rows).take(rows))
-              Expanded(
-                child: SongTile(
-                  song: song,
-                  showFavourite: true,
-                  // A radio of that song, not the whole list.
-                  onTap: () => music.startRadio(song),
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }

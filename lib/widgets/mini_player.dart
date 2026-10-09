@@ -1,12 +1,18 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../screens/now_playing_screen.dart';
+import '../services/desktop_library.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
 import 'marquee_text.dart';
 import 'shelf.dart';
 import 'song_artwork.dart';
+import 'song_options.dart';
+import 'volume_control.dart';
 
 /// The bar above the tabs showing the current song. Tap or swipe up to open
 /// the full player; swipe right for the next song, left for the previous;
@@ -83,8 +89,11 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
     return LayoutBuilder(
       builder: (context, constraints) {
         _width = constraints.maxWidth;
+        // A desktop window has room for the time and volume beside the buttons.
+        final wide = isDesktop && constraints.maxWidth >= 600;
         return GestureDetector(
           onTap: () => openNowPlaying(context),
+          onSecondaryTap: () => showSongOptions(context, song),
           onVerticalDragEnd: (details) {
             if ((details.primaryVelocity ?? 0) < -200) openNowPlaying(context);
           },
@@ -130,7 +139,8 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                                   ),
                                   ValueListenableBuilder(
                                     valueListenable: _seekTo,
-                                    builder: (context, seekTo, _) => seekTo == null
+                                    // With the time showing, that shows where a drag will seek to.
+                                    builder: (context, seekTo, _) => seekTo == null || wide
                                         ? HiResLine(
                                             hiRes: music.isHiRes(song),
                                             line: MarqueeText(
@@ -147,6 +157,11 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                                 ],
                               ),
                             ),
+                            if (wide)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: _TimeLabel(player: player, seekTo: _seekTo),
+                              ),
                             IconButton(
                               iconSize: 28,
                               tooltip: 'Previous',
@@ -172,7 +187,8 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                               icon: const Icon(Icons.skip_next_rounded),
                               onPressed: player.hasNext ? player.seekToNext : null,
                             ),
-                            const SizedBox(width: 4),
+                            if (wide) ...[const SizedBox(width: 12), VolumeControl(music: music)],
+                            SizedBox(width: wide ? 12 : 4),
                           ],
                         ),
                       ),
@@ -194,8 +210,68 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
   }
 }
 
+/// How far into the song it is, and how long the song is. While the bar is
+/// dragged, the time it will seek to.
+class _TimeLabel extends StatefulWidget {
+  const _TimeLabel({required this.player, required this.seekTo});
+
+  final AudioPlayer player;
+  final ValueNotifier<Duration?> seekTo;
+
+  @override
+  State<_TimeLabel> createState() => _TimeLabelState();
+}
+
+class _TimeLabelState extends State<_TimeLabel> {
+  /// What's showing, so a tick only rebuilds when the seconds change.
+  String? _shown;
+
+  // Its own clock, stopped with it: a player's position stream keeps its
+  // timer running until the player itself goes. Often enough that the
+  // seconds don't visibly lag.
+  late final Timer _tick = Timer.periodic(const Duration(milliseconds: 250), (_) {
+    if (_text(widget.player.position) != _shown) setState(() {});
+  });
+
+  String _text(Duration position) =>
+      '${formatDuration(position)} / ${formatDuration(widget.player.duration ?? Duration.zero)}';
+
+  @override
+  void initState() {
+    super.initState();
+    _tick;
+  }
+
+  @override
+  void dispose() {
+    _tick.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodyMedium;
+    return ValueListenableBuilder(
+      valueListenable: widget.seekTo,
+      builder: (context, seekTo, _) {
+        final text = _text(seekTo ?? widget.player.position);
+        if (seekTo == null) _shown = text;
+        return Text(
+          text,
+          style: style?.copyWith(
+            color: seekTo == null ? AppColors.textSecondary : AppColors.accent,
+            // So the label doesn't jiggle as the digits change.
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// The song's progress along the bottom edge. Tap or drag anywhere along it
-/// to jump there; it thickens while dragged.
+/// to jump there; it thickens while dragged. With a mouse, it also thickens
+/// under the pointer, and shows the time there above it.
 class _SeekBar extends StatefulWidget {
   const _SeekBar({required this.player, required this.seekTo});
 
@@ -222,6 +298,9 @@ class _SeekBarState extends State<_SeekBar> {
   /// 0..1 while being dragged.
   double? _drag;
 
+  /// 0..1 where the mouse is over the bar.
+  double? _hover;
+
   Duration get _total => widget.player.duration ?? Duration.zero;
 
   void _dragTo(Offset local, double width) {
@@ -243,45 +322,85 @@ class _SeekBarState extends State<_SeekBar> {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final enabled = _total > Duration.zero;
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: enabled ? (d) => _dragTo(d.localPosition, width) : null,
-          onTapUp: enabled ? (_) => _seek() : null,
-          onTapCancel: () {
-            setState(() => _drag = null);
-            widget.seekTo.value = null;
-          },
-          onHorizontalDragStart: enabled ? (d) => _dragTo(d.localPosition, width) : null,
-          onHorizontalDragUpdate: enabled ? (d) => _dragTo(d.localPosition, width) : null,
-          onHorizontalDragEnd: enabled ? (_) => _seek() : null,
-          child: SizedBox(
-            height: _SeekBar.touchHeight,
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: StreamBuilder<Duration>(
-                stream: _position,
-                builder: (context, snapshot) {
-                  final total = _total.inMilliseconds;
-                  final played = total > 0 ? (snapshot.data ?? Duration.zero).inMilliseconds / total : 0.0;
-                  final value = (_drag ?? played).clamp(0.0, 1.0);
-                  return seekSemantics(
-                    position: snapshot.data ?? Duration.zero,
-                    duration: _total,
-                    onSeek: widget.player.seek,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 120),
-                      height: _drag == null ? _SeekBar.thickness : _SeekBar.thickness + 3,
-                      color: AppColors.outline,
-                      alignment: Alignment.centerLeft,
-                      child: FractionallySizedBox(
-                        widthFactor: value,
-                        heightFactor: 1,
-                        child: ColoredBox(color: AppColors.accent),
+        // Only with a mouse: a finger hides the bar, and the artist line
+        // shows the time instead.
+        final tipAt = _hover == null ? null : _drag ?? _hover;
+        return MouseRegion(
+          cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+          onHover: enabled ? (e) => setState(() => _hover = (e.localPosition.dx / width).clamp(0.0, 1.0)) : null,
+          onExit: (_) => setState(() => _hover = null),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: enabled ? (d) => _dragTo(d.localPosition, width) : null,
+            onTapUp: enabled ? (_) => _seek() : null,
+            onTapCancel: () {
+              setState(() => _drag = null);
+              widget.seekTo.value = null;
+            },
+            onHorizontalDragStart: enabled ? (d) => _dragTo(d.localPosition, width) : null,
+            onHorizontalDragUpdate: enabled ? (d) => _dragTo(d.localPosition, width) : null,
+            onHorizontalDragEnd: enabled ? (_) => _seek() : null,
+            child: Stack(
+              // The time sits above the bar, over the song's details.
+              clipBehavior: Clip.none,
+              children: [
+                SizedBox(
+                  height: _SeekBar.touchHeight,
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: StreamBuilder<Duration>(
+                      stream: _position,
+                      builder: (context, snapshot) {
+                        final total = _total.inMilliseconds;
+                        final played = total > 0 ? (snapshot.data ?? Duration.zero).inMilliseconds / total : 0.0;
+                        final value = (_drag ?? played).clamp(0.0, 1.0);
+                        return seekSemantics(
+                          position: snapshot.data ?? Duration.zero,
+                          duration: _total,
+                          onSeek: widget.player.seek,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 120),
+                            height: _drag == null && _hover == null ? _SeekBar.thickness : _SeekBar.thickness + 3,
+                            color: AppColors.outline,
+                            alignment: Alignment.centerLeft,
+                            child: FractionallySizedBox(
+                              widthFactor: value,
+                              heightFactor: 1,
+                              child: ColoredBox(color: AppColors.accent),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                if (tipAt != null)
+                  Positioned(
+                    // Kept inside the card at either end.
+                    left: (tipAt * width).clamp(28.0, max(28.0, width - 28)),
+                    bottom: _SeekBar.thickness + 9,
+                    child: IgnorePointer(
+                      child: FractionalTranslation(
+                        translation: const Offset(-0.5, 0),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.accent,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            formatDuration(_total * tipAt),
+                            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              color: AppColors.onAccent,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+              ],
             ),
           ),
         );

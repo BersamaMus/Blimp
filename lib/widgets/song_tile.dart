@@ -73,6 +73,7 @@ class SongTile extends StatelessWidget {
         child: InkWell(
           onTap: () => playAndOpen(context, onTap),
           onLongPress: () => showSongOptions(context, song),
+          onSecondaryTap: () => showSongOptions(context, song),
           child: Padding(
             padding: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
             child: Row(
