@@ -25,6 +25,8 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  media_controls_ = std::make_unique<MediaControls>(
+      flutter_controller_->engine()->messenger(), GetHandle());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,6 +42,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  media_controls_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -65,6 +68,17 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case MediaControls::kPressMessage:
+      if (media_controls_) media_controls_->HandlePress(wparam, lparam);
+      return 0;
+    case WM_GETMINMAXINFO: {
+      // Any smaller and the phone layout no longer fits.
+      auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
+      UINT dpi = GetDpiForWindow(hwnd);
+      limits->ptMinTrackSize.x = MulDiv(400, dpi, 96);
+      limits->ptMinTrackSize.y = MulDiv(640, dpi, 96);
+      return 0;
+    }
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

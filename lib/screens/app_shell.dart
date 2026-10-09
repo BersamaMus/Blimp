@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../services/desktop_library.dart';
 import '../services/home_widgets.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
@@ -22,6 +23,14 @@ void openPage(Widget page) => openRoute(MaterialPageRoute(builder: (_) => page))
 
 /// [openPage], for a route built elsewhere.
 void openRoute(Route<void> route) => _shellKey.currentState?.openRoute(route);
+
+/// From this window width up, the desktop app's tabs run down the side
+/// (Material's "expanded" size). Phones and tablets keep the bottom bar.
+const wideLayoutWidth = 840.0;
+
+/// How wide pages and the mini player get in a wide window, so lines stay
+/// readable.
+const readableWidth = 960.0;
 
 /// Switches to the Stats tab, closing the player or any sheet first.
 void openStatsTab() => _shellKey.currentState?._showTab(2);
@@ -161,50 +170,97 @@ class _AppShellState extends State<AppShell> {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: _handleBack,
-      child: Scaffold(
-        body: body,
-        // The mini player and a pill-shaped tab bar float above the bottom edge.
-        bottomNavigationBar: SafeArea(
-          minimum: const EdgeInsets.only(bottom: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const MiniPlayer(),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(32),
-                  child: MediaQuery.removePadding(
-                    // The SafeArea above already handles the system bar inset.
-                    // This context is above the Scaffold, so it still carries
-                    // the status bar's inset too, which NavigationBar's own
-                    // SafeArea would add above the icons.
-                    context: context,
-                    removeTop: true,
-                    removeBottom: true,
-                    // A little room above the icons, to balance the label
-                    // below the selected one.
-                    child: Container(
-                      color: AppColors.surfaceHigh,
-                      padding: const EdgeInsets.only(top: 6),
-                      child: NavigationBar(
-                        selectedIndex: _tab,
-                        onDestinationSelected: _selectTab,
-                        destinations: [
-                          for (final tab in _tabs)
-                            NavigationDestination(
-                              icon: Icon(tab.icon),
-                              selectedIcon: Icon(tab.selectedIcon),
-                              label: tab.label,
-                            ),
-                        ],
-                      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) =>
+            isDesktop && constraints.maxWidth >= wideLayoutWidth ? _wideLayout(body) : _narrowLayout(context, body),
+      ),
+    );
+  }
+
+  /// A desktop window: the tabs down the left side, and the pages and mini
+  /// player kept to a readable width beside them.
+  Widget _wideLayout(Widget body) {
+    Widget readable(Widget child) => Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: readableWidth),
+        child: child,
+      ),
+    );
+    return Scaffold(
+      body: Row(
+        children: [
+          NavigationRail(
+            selectedIndex: _tab,
+            onDestinationSelected: _selectTab,
+            groupAlignment: -0.9,
+            destinations: [
+              for (final tab in _tabs)
+                NavigationRailDestination(
+                  icon: Icon(tab.icon),
+                  selectedIcon: Icon(tab.selectedIcon),
+                  label: Text(tab.label),
+                ),
+            ],
+          ),
+          Expanded(
+            child: Column(
+              children: [
+                Expanded(child: readable(body)),
+                Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: readable(const MiniPlayer())),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A phone: the mini player and a pill-shaped tab bar float above the
+  /// bottom edge.
+  Widget _narrowLayout(BuildContext context, Widget body) {
+    return Scaffold(
+      body: body,
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const MiniPlayer(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(32),
+                child: MediaQuery.removePadding(
+                  // The SafeArea above already handles the system bar inset.
+                  // This context is above the Scaffold, so it still carries
+                  // the status bar's inset too, which NavigationBar's own
+                  // SafeArea would add above the icons.
+                  context: context,
+                  removeTop: true,
+                  removeBottom: true,
+                  // A little room above the icons, to balance the label
+                  // below the selected one.
+                  child: Container(
+                    color: AppColors.surfaceHigh,
+                    padding: const EdgeInsets.only(top: 6),
+                    child: NavigationBar(
+                      selectedIndex: _tab,
+                      onDestinationSelected: _selectTab,
+                      destinations: [
+                        for (final tab in _tabs)
+                          NavigationDestination(
+                            icon: Icon(tab.icon),
+                            selectedIcon: Icon(tab.selectedIcon),
+                            label: tab.label,
+                          ),
+                      ],
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

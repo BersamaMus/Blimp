@@ -447,10 +447,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
               sliver: SliverLayoutBuilder(
                 builder: (context, constraints) {
-                  final cardWidth = (constraints.crossAxisExtent - 12) / 2;
+                  // Two across on a phone; more as a desktop window widens.
+                  final columns = max(2, (constraints.crossAxisExtent + 12) ~/ 192);
+                  final cardWidth = (constraints.crossAxisExtent - 12 * (columns - 1)) / columns;
                   return SliverGrid.builder(
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
+                      crossAxisCount: columns,
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 16,
                       mainAxisExtent: cardWidth + 72,

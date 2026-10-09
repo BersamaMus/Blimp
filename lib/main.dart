@@ -7,8 +7,10 @@ import 'screens/app_shell.dart';
 import 'services/car_browser.dart';
 import 'services/desktop_library.dart';
 import 'services/home_widgets.dart';
+import 'services/media_controls.dart';
 import 'services/music_controller.dart';
 import 'theme.dart';
+import 'widgets/desktop_shortcuts.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +46,9 @@ Future<void> main() async {
   final controller = MusicController();
   // Android Auto and other media browsers show the library through this.
   if (!isDesktop) JustAudioBackground.browser = CarBrowser(controller);
+  // The media keys and Windows' media flyout; the phone gets these from the
+  // playback notification.
+  if (isDesktop) DesktopMediaControls(controller);
   controller.init();
   runApp(BetterMusicPlayerApp(controller: controller));
 }
@@ -74,6 +79,8 @@ class _BetterMusicPlayerAppState extends State<BetterMusicPlayerApp> {
         debugShowCheckedModeBanner: false,
         navigatorKey: rootNavigatorKey,
         theme: buildTheme(),
+        // Keyboard shortcuts, around every page and the player.
+        builder: isDesktop ? (context, child) => DesktopShortcuts.forMusic(widget.controller, child: child!) : null,
         home: AppShell(),
       ),
     );

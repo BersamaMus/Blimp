@@ -26,8 +26,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  // Phone-shaped until the layout adapts to wide windows.
-  Win32Window::Size size(480, 900);
+  // Wide enough for the desktop layout, with the tabs down the side.
+  Win32Window::Size size(1180, 800);
   if (!window.Create(L"Blimp", origin, size)) {
     return EXIT_FAILURE;
   }
