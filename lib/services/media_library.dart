@@ -271,6 +271,7 @@ class MediaLibrary {
 
   /// The song's codec, bitrate and so on; null if the file can't be read.
   static Future<AudioFormat?> getAudioFormat(Song song) {
+    if (isDesktop) return Future.value(DesktopLibrary.audioFormat(song));
     if (_formats[song.id] case final format?) return format;
     return _formats[song.id] = _channel
         .invokeMapMethod<Object?, Object?>('getAudioFormat', {'id': song.id})
@@ -337,6 +338,7 @@ class MediaLibrary {
   /// loud as others: from its ReplayGain tag, or measured from it. Null if
   /// it can't be told. Measuring takes a moment the first time.
   static Future<double?> getGain(Song song) {
+    if (isDesktop) return Future.value(DesktopLibrary.gain(song));
     if (_gains[song.id] case final gain?) return gain;
     return _gains[song.id] = _channel
         .invokeMethod<double>('getGain', {'id': song.id})
@@ -347,7 +349,7 @@ class MediaLibrary {
   /// songs with [ids] that has one. Slow the first time for each song, as
   /// its tags are read; null if they can't be.
   static Future<Map<int, String>?> getReleaseTypes(List<int> ids) async {
-    if (isDesktop) return null;
+    if (isDesktop) return DesktopLibrary.releaseTypes(ids);
     try {
       final types = await _channel.invokeMapMethod<String, String>('getReleaseTypes', {'ids': ids});
       return {
@@ -363,7 +365,7 @@ class MediaLibrary {
   /// Slow the first time for each lossless song, as its file is opened;
   /// empty if they can't be checked.
   static Future<Set<int>> getHiRes(List<Song> songs) async {
-    if (isDesktop) return const {};
+    if (isDesktop) return DesktopLibrary.hiRes(songs);
     try {
       final ids = await _channel.invokeListMethod<int>('getHiRes', {
         'songs': [
@@ -382,8 +384,10 @@ class MediaLibrary {
   /// has none.
   static Future<Lyrics?> getLyrics(Song song) {
     if (_lyrics[song.id] case final lyrics?) return lyrics;
-    return _lyrics[song.id] = _channel
-        .invokeMethod<String>('getLyrics', {'id': song.id})
+    final text = isDesktop
+        ? DesktopLibrary.lyrics(song)
+        : _channel.invokeMethod<String>('getLyrics', {'id': song.id});
+    return _lyrics[song.id] = text
         .then((raw) => raw == null ? null : parseLyrics(raw))
         .catchError((Object _) => null);
   }
@@ -402,9 +406,11 @@ class MediaLibrary {
   static Future<bool> openFolder(String path) async {
     if (isDesktop) {
       // Opens its folder in Explorer with the file selected. Explorer wants
-      // backslashes, and exits with 1 even when it opens fine.
+      // backslashes and the path as its own argument (quoted when it has
+      // spaces, which it doesn't understand stuck to /select,), and exits
+      // with 1 even when it opens fine.
       if (!Platform.isWindows) return false;
-      await Process.run('explorer', ['/select,${path.replaceAll('/', r'\')}']);
+      await Process.run('explorer', ['/select,', path.replaceAll('/', r'\')]);
       return true;
     }
     try {
@@ -452,8 +458,9 @@ class MediaLibrary {
       final pending = _queue.remove(key)!;
       _loading[key] = pending;
       final (songId, size) = key;
-      _channel
-          .invokeMethod<Uint8List>('getArtwork', {'id': songId, 'size': size})
+      (isDesktop
+              ? DesktopLibrary.artwork(songId, size)
+              : _channel.invokeMethod<Uint8List>('getArtwork', {'id': songId, 'size': size}))
           .catchError((Object _) => null)
           .then((bytes) {
             _cacheFor(size)[songId] = bytes;

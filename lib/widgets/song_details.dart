@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -166,10 +168,13 @@ class _Location extends StatefulWidget {
 class _LocationState extends State<_Location> {
   String? _note;
 
+  /// The path as the system writes it: with backslashes on Windows.
+  String _native(String path) => Platform.isWindows ? path.replaceAll('/', r'\') : path;
+
   Future<void> _open() async {
     final opened = await MediaLibrary.openFolder(widget.path);
     if (opened || !mounted) return;
-    await Clipboard.setData(ClipboardData(text: widget.path));
+    await Clipboard.setData(ClipboardData(text: _native(widget.path)));
     if (mounted) setState(() => _note = "Couldn't open the folder here, so its path was copied.");
   }
 
@@ -191,7 +196,7 @@ class _LocationState extends State<_Location> {
               borderRadius: BorderRadius.circular(6),
               onTap: _open,
               onLongPress: () async {
-                await Clipboard.setData(ClipboardData(text: widget.path));
+                await Clipboard.setData(ClipboardData(text: _native(widget.path)));
                 if (mounted) setState(() => _note = 'Path copied.');
               },
               child: Column(
@@ -201,7 +206,7 @@ class _LocationState extends State<_Location> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: Text(folder, style: textTheme.bodyMedium?.copyWith(color: AppColors.accent)),
+                        child: Text(_native(folder), style: textTheme.bodyMedium?.copyWith(color: AppColors.accent)),
                       ),
                       const SizedBox(width: 6),
                       Icon(Icons.folder_open_rounded, size: 18, color: AppColors.accent),
