@@ -1,7 +1,7 @@
 # Blimp
 
-A good-looking offline music player for Android and Windows. Blimp plays the
-music already on your device: no accounts, no ads, no internet.
+Blimp (Better Localized Music Player) is an offline music player for Android and Windows. 
+Blimp plays the music already on your device: no accounts, no ads, no internet.
 
 ## Screenshots
 
@@ -36,7 +36,7 @@ Windows may warn that the installer is from an unknown publisher. Click
 - **Live visualizer:** Bars, Mirror, Wave, Radial and Pulse styles.
 - **Synced lyrics:** read from your files' tags or from `.lrc` files beside them.
   Tap a line to jump to it.
-- **Sound:** hi-res badges, volume normalisation (ReplayGain), crossfade,
+- **Sound:** hi-res badges, volume normalisation, crossfade,
   an equalizer, skip silence, and playback speed.
 - **Library:** browse by songs, albums, artists, playlists, genres or folders.
   Albums are sorted into Albums, EPs, Singles and Compilations. Search ignores
@@ -58,26 +58,6 @@ Windows may warn that the installer is from an unknown publisher. Click
 ### On Android
 
 - Android Auto, home screen widgets, lock screen controls, and a sleep timer.
-
-## Building from source
-
-You need [Flutter](https://docs.flutter.dev/get-started/install) (Dart SDK
-3.13 or newer).
-
-```sh
-flutter pub get
-flutter run                 # on a connected Android phone or emulator
-flutter run -d windows      # on Windows
-```
-
-To build the Windows installer, install Inno Setup
-(`winget install JRSoftware.InnoSetup`) and run:
-
-```powershell
-powershell -File windows\installer\build_installer.ps1
-```
-
-The installer is saved to `build\installer\`.
 
 ## License
 
