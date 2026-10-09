@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_nothing_playing">Nothing playing</string>
+    <string name="widget_tap_to_open">Tap to open Blimp</string>
+    <string name="widget_previous">Previous</string>
+    <string name="widget_next">Next</string>
+    <string name="widget_play">Play</string>
+    <string name="widget_pause">Pause</string>
+    <string name="widget_artwork">Album art</string>
+    <string name="widget_small_label">Now playing bar</string>
+    <string name="widget_square_label">Now playing art</string>
+    <string name="widget_wide_label">Now playing</string>
+    <string name="widget_small_description">Now playing, with playback controls</string>
+    <string name="widget_square_description">Now playing over the album art</string>
+    <string name="widget_wide_description">Now playing, with album art and controls</string>
+</resources>

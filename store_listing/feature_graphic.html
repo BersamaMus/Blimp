@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;width:1024px;height:500px;overflow:hidden;background:#000;font-family:"Segoe UI",Roboto,sans-serif}
+.wrap{position:relative;width:1024px;height:500px;background:
+ radial-gradient(600px 420px at 820px 250px, rgba(250,204,21,.16), transparent 70%),
+ radial-gradient(520px 380px at 640px 330px, rgba(234,179,8,.12), transparent 70%), #050505}
+.left{position:absolute;left:72px;top:0;height:500px;display:flex;flex-direction:column;justify-content:center}
+.brand{display:flex;align-items:center;gap:22px}
+.brand img{width:104px;height:104px;border-radius:26px;box-shadow:0 12px 40px rgba(250,204,21,.22)}
+h1{margin:0;color:#fff;font-size:88px;font-weight:700;letter-spacing:-2px}
+p{margin:20px 0 0;color:#d4d4d8;font-size:30px;line-height:1.3;font-weight:500}
+p b{color:#FACC15;font-weight:600}
+.chips{display:flex;gap:10px;margin-top:30px}
+.chips span{font-size:17px;font-weight:600;color:#e4e4e7;padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12)}
+.bars{position:absolute;right:64px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:8px;height:340px}
+.bars i{display:block;width:10px;border-radius:5px;background:linear-gradient(180deg,#FDE047,#CA8A04)}
+</style></head><body><div class="wrap">
+<div class="left"><div class="brand"><img src="icon_512.png"><h1>Blimp</h1></div>
+<p>Your music.<br><b>Beautifully played.</b></p>
+<div class="chips"><span>Fully offline</span><span>Live visualizer</span><span>No ads</span></div></div>
+<div class="bars" id="b"></div></div>
+<script>
+const h=[140,190,250,200,300,240,320,260,200,280,180,230,150,190,120,150,90,110,70,50];
+const b=document.getElementById('b');h.forEach((v,i)=>{const e=document.createElement('i');e.style.height=v+'px';e.style.opacity=(0.55+0.45*Math.sin(Math.PI*i/(h.length-1))).toFixed(2);b.appendChild(e)});
+</script></body></html>

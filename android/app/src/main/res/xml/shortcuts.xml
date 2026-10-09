@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-pressing the app icon. Each opens the app with a request, as the
+     home screen widgets do (see HomeWidgets.EXTRA_REQUEST). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="shuffle"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_shuffle"
+        android:shortcutShortLabel="@string/shortcut_shuffle">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.blimp.app"
+            android:targetClass="com.blimp.app.MainActivity">
+            <extra android:name="com.blimp.app.widget.REQUEST" android:value="shuffleAll" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="resume"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_resume"
+        android:shortcutShortLabel="@string/shortcut_resume">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.blimp.app"
+            android:targetClass="com.blimp.app.MainActivity">
+            <extra android:name="com.blimp.app.widget.REQUEST" android:value="play" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="favourites"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_favourites"
+        android:shortcutShortLabel="@string/shortcut_favourites">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.blimp.app"
+            android:targetClass="com.blimp.app.MainActivity">
+            <extra android:name="com.blimp.app.widget.REQUEST" android:value="favourites" />
+        </intent>
+    </shortcut>
+</shortcuts>
