@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -6,11 +9,14 @@ import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'screens/app_shell.dart';
 import 'services/car_browser.dart';
 import 'services/desktop_library.dart';
+import 'services/desktop_window.dart';
 import 'services/home_widgets.dart';
 import 'services/media_controls.dart';
 import 'services/music_controller.dart';
 import 'theme.dart';
+import 'widgets/close_choice.dart';
 import 'widgets/desktop_shortcuts.dart';
+import 'widgets/window_scale.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,6 +55,8 @@ Future<void> main() async {
   // The media keys and Windows' media flyout; the phone gets these from the
   // playback notification.
   if (isDesktop) DesktopMediaControls(controller);
+  // Closing the window to the tray, to keep playing; asked until remembered.
+  if (Platform.isWindows) DesktopWindow.init(controller, ask: askCloseAction);
   controller.init();
   runApp(BetterMusicPlayerApp(controller: controller));
 }
@@ -79,8 +87,18 @@ class _BetterMusicPlayerAppState extends State<BetterMusicPlayerApp> {
         debugShowCheckedModeBanner: false,
         navigatorKey: rootNavigatorKey,
         theme: buildTheme(),
-        // Keyboard shortcuts, around every page and the player.
-        builder: isDesktop ? (context, child) => DesktopShortcuts.forMusic(widget.controller, child: child!) : null,
+        // On desktop, dragging with the mouse scrolls and swipes as a finger
+        // does on a phone.
+        scrollBehavior: isDesktop
+            ? const MaterialScrollBehavior().copyWith(dragDevices: PointerDeviceKind.values.toSet())
+            : null,
+        // Keyboard shortcuts and the side tabs, around every page and the
+        // player, all zoomed with the window.
+        builder: isDesktop
+            ? (context, child) => WindowScale(
+                child: DesktopShortcuts.forMusic(widget.controller, child: DesktopFrame(child: child!)),
+              )
+            : null,
         home: AppShell(),
       ),
     );

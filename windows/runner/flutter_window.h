@@ -6,7 +6,12 @@
 
 #include <memory>
 
+#include "background.h"
 #include "media_controls.h"
+#include "output_watch.h"
+#include "share.h"
+#include "visualizer.h"
+#include "waveform.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -32,6 +37,24 @@ class FlutterWindow : public Win32Window {
 
   // The media keys and Windows' media flyout.
   std::unique_ptr<MediaControls> media_controls_;
+
+  // Pauses when the headphones playing are unplugged.
+  std::unique_ptr<OutputWatch> output_watch_;
+
+  // Windows' share panel, for a song's file.
+  std::unique_ptr<Share> share_;
+
+  // The waveform seek bar's levels, decoded by Windows.
+  std::unique_ptr<Waveform> waveform_;
+
+  // Closing to the system tray, to keep playing in the background.
+  std::unique_ptr<Background> background_;
+
+  // The visualizer's audio.
+  std::unique_ptr<Visualizer> visualizer_;
+
+  // Whether the window was maximized when last closed, so it opens that way.
+  bool show_maximized_ = false;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

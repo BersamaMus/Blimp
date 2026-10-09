@@ -74,6 +74,18 @@ class CollectionScreen extends StatefulWidget {
         emptyText: 'Play some songs to build your chart.',
       );
 
+  /// All of an artist's songs, from their page's Show all.
+  CollectionScreen.artistSongs(Artist artist, {Key? key})
+    : this.playlist(
+        key: key,
+        title: artist.name,
+        kindLine: 'Songs',
+        art: ArtistAvatar(songId: artist.cover.id, size: null),
+        // Looked up again so the list follows library rescans.
+        songsOf: (music) => music.artistNamed(artist.name)?.songs ?? const [],
+        emptyText: 'This artist is no longer in your library.',
+      );
+
   final String title;
   final String kindLine;
   final String? artistName;

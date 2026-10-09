@@ -23,6 +23,7 @@ class AlbumCard extends StatelessWidget {
       subtitle: subtitle ?? '${album.kind} • ${album.artist}',
       hiRes: MusicScope.of(context, const {MusicAspect.library}).isAlbumHiRes(album),
       onTap: () => openPage(CollectionScreen.album(album)),
+      onPlay: () => MusicScope.read(context).playSongs(album.songs),
     );
   }
 }

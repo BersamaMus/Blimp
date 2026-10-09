@@ -110,3 +110,10 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# The Visual C++ runtime (vcruntime140.dll, msvcp140.dll...) beside
+# blimp.exe, so Blimp starts on a PC that hasn't had it installed by
+# something else. Microsoft allows shipping these with an app.
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION "${INSTALL_BUNDLE_LIB_DIR}")
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_COMPONENT Runtime)
+include(InstallRequiredSystemLibraries)

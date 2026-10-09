@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -119,6 +120,29 @@ abstract final class DesktopLibrary {
   /// Where the song's cover at [size] is saved, for Windows' media controls,
   /// which take a file; null if it has none.
   static Future<String?> artworkPath(int songId, int size) async => (await _artworkFile(songId, size))?.path;
+
+  static const _waveformChannel = MethodChannel('blimp/waveform');
+
+  /// How loud the song is across [points] equal slices of it, each 0..255
+  /// (255 the loudest slice), for the waveform seek bar; null if the file
+  /// can't be decoded. Windows decodes it (windows/runner/waveform.cpp),
+  /// once per song: it's then kept on disk.
+  static Future<Uint8List?> waveform(int songId, int points) async {
+    final details = _details[songId];
+    final path = details?['path'] as String?;
+    if (path == null) return null;
+    // Named by when the song's file changed, as covers are.
+    final cached = File('${await _cachePath()}/waveforms/${songId}_${points}_${details!['dateAdded']}');
+    if (await cached.exists()) return cached.readAsBytes();
+    final levels = await _waveformChannel.invokeMethod<Float64List>('levels', {'path': path, 'points': points});
+    if (levels == null || levels.isEmpty) return null;
+    final loudest = levels.reduce(max);
+    if (loudest <= 0) return null;
+    final bytes = Uint8List.fromList([for (final level in levels) (level / loudest * 255).round().clamp(0, 255)]);
+    await cached.parent.create(recursive: true);
+    await cached.writeAsBytes(bytes);
+    return bytes;
+  }
 
   /// The saved PNG of the song's cover at [size], made if it isn't yet;
   /// null if the song has no cover.

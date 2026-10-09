@@ -17,6 +17,7 @@ import '../widgets/shelf.dart';
 import '../widgets/song_artwork.dart';
 import '../widgets/song_options.dart';
 import '../widgets/visualizer_view.dart';
+import '../widgets/volume_control.dart';
 import 'app_shell.dart';
 import 'artist_screen.dart';
 import 'collection_screen.dart';
@@ -130,12 +131,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> with SingleTickerPr
             ),
             child: Material(
               type: MaterialType.transparency,
-              // Centred, so a wide window doesn't stretch the controls across.
               child: SafeArea(
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 640),
-                    child: _PlayerBody(song: song),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => _PlayerBody(
+                    song: song,
+                    wide: DesktopFrame.showsTabs(context) &&
+                        constraints.maxWidth > constraints.maxHeight * 1.2,
                   ),
                 ),
               ),
@@ -147,151 +148,245 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> with SingleTickerPr
   }
 }
 
-class _PlayerBody extends StatelessWidget {
-  const _PlayerBody({required this.song});
+/// The player's page: one column on a phone, centred in a narrow window so
+/// the controls aren't stretched across it. In a wide window the artwork
+/// takes the left half, as tall as the window allows, beside the rest, and
+/// Up next, the visualizer and lyrics open under their buttons rather than
+/// in a sheet over the player.
+class _PlayerBody extends StatefulWidget {
+  const _PlayerBody({required this.song, required this.wide});
 
   final Song song;
+  final bool wide;
+
+  @override
+  State<_PlayerBody> createState() => _PlayerBodyState();
+}
+
+class _PlayerBodyState extends State<_PlayerBody> {
+  /// The tab open under the buttons in a wide window, if any.
+  int? _panel;
+
+  Widget _panelView(int panel) => switch (panel) {
+    0 => const _UpNextList(),
+    1 => const VisualizerView(),
+    _ => FutureBuilder<Lyrics?>(
+      key: ValueKey(widget.song.id),
+      future: MediaLibrary.getLyrics(widget.song),
+      builder: (context, snapshot) => switch (snapshot.data) {
+        final lyrics? => LyricsView(lyrics: lyrics),
+        // Moved on to a song without any.
+        null when snapshot.connectionState == ConnectionState.done => const MessageView(
+          icon: Icons.lyrics_outlined,
+          text: 'No lyrics for this song.',
+        ),
+        null => const SizedBox.shrink(),
+      },
+    ),
+  };
 
   @override
   Widget build(BuildContext context) {
+    final song = widget.song;
+    final wide = widget.wide;
+    // Only in a wide window; a narrow one opens the sheet instead.
+    final panel = wide ? _panel : null;
     final music = MusicScope.of(context, const {MusicAspect.playback, MusicAspect.library, MusicAspect.settings});
     final player = music.player;
     final textTheme = Theme.of(context).textTheme;
     final album = music.albumOf(song);
     final artists = music.artistsOf(song);
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: 'Back',
-                icon: const Icon(Icons.arrow_back_rounded),
-                onPressed: () => Navigator.pop(context),
-              ),
-              const Spacer(),
-              const _SpeedButton(),
-              const _SleepTimerButton(),
-              IconButton(
-                tooltip: 'More',
-                icon: const Icon(Icons.more_vert),
-                onPressed: () => showSongOptions(context, song, inPlayer: true),
-              ),
-            ],
+    final header = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () => Navigator.pop(context),
           ),
-        ),
+          const Spacer(),
+          const _SpeedButton(),
+          const _SleepTimerButton(),
+          IconButton(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert),
+            onPressed: () => showSongOptions(context, song, inPlayer: true),
+          ),
+        ],
+      ),
+    );
 
-        // Artwork: swipe sideways to change song.
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-            child: Center(
-              child: Hero(
-                tag: 'now-playing-art',
-                child: _SwipeableArtwork(
-                  player: player,
-                  songId: song.id,
-                  child: Container(
-                    key: ValueKey(song.id),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppRadius.large),
-                      boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 16, offset: Offset(0, 8))],
-                    ),
-                    child: _DoubleTapSeek(
-                      player: player,
-                      seconds: music.seekSeconds,
-                      child: SongArtwork(songId: song.id, size: null, radius: AppRadius.large, large: true),
-                    ),
-                  ),
-                ),
-              ),
+    // Artwork: swipe sideways to change song.
+    final artwork = Center(
+      child: Hero(
+        tag: 'now-playing-art',
+        child: _SwipeableArtwork(
+          player: player,
+          songId: song.id,
+          child: Container(
+            key: ValueKey(song.id),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.large),
+              boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 16, offset: Offset(0, 8))],
+            ),
+            child: _DoubleTapSeek(
+              player: player,
+              seconds: music.seekSeconds,
+              child: SongArtwork(songId: song.id, size: null, radius: AppRadius.large, large: true),
             ),
           ),
         ),
+      ),
+    );
 
-        // Centered; names too long to fit scroll past like a news ticker.
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            children: [
-              MarqueeText(song.title, style: textTheme.headlineSmall?.copyWith(fontSize: 22)),
-              const SizedBox(height: 2),
+    final details = [
+      // Centered; names too long to fit scroll past like a news ticker.
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          children: [
+            MarqueeText(song.title, style: textTheme.headlineSmall?.copyWith(fontSize: 22)),
+            const SizedBox(height: 2),
+            GestureDetector(
+              onTap: artists.isEmpty ? null : () => openArtists(context, artists),
+              child: MarqueeText(
+                song.artistName,
+                style: textTheme.titleMedium?.copyWith(color: AppColors.textSecondary, fontWeight: FontWeight.w400),
+              ),
+            ),
+            if (album?.title ?? song.album case final albumTitle? when albumTitle.isNotEmpty)
               GestureDetector(
-                onTap: artists.isEmpty ? null : () => openArtists(context, artists),
+                onTap: album == null || album.isSingle ? null : () => openPage(CollectionScreen.album(album)),
                 child: MarqueeText(
-                  song.artistName,
-                  style: textTheme.titleMedium?.copyWith(color: AppColors.textSecondary, fontWeight: FontWeight.w400),
+                  albumTitle,
+                  style: textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary.withValues(alpha: 0.8)),
                 ),
               ),
-              if (album?.title ?? song.album case final albumTitle? when albumTitle.isNotEmpty)
-                GestureDetector(
-                  onTap: album == null || album.isSingle ? null : () => openPage(CollectionScreen.album(album)),
-                  child: MarqueeText(
-                    albumTitle,
-                    style: textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary.withValues(alpha: 0.8)),
+            const SizedBox(height: 10),
+            _FormatLine(song: song),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _FavouritePill(song: song),
+          if (album != null && !album.isSingle) ...[
+            const SizedBox(width: 8),
+            _ActionChip(
+              icon: Icons.album_outlined,
+              label: 'Album',
+              onTap: () => openPage(CollectionScreen.album(album)),
+            ),
+          ],
+        ],
+      ),
+      const SizedBox(height: 20),
+      _SeekBar(player: player),
+      const SizedBox(height: 14),
+      _Controls(player: player),
+      // Phones have volume keys; a desktop window has only this.
+      if (isDesktop) ...[
+        const SizedBox(height: 8),
+        VolumeControl(music: MusicScope.read(context), sliderWidth: 220),
+      ],
+      SizedBox(height: wide ? 24 : 12),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        // Lyrics only when the song has some.
+        child: FutureBuilder<Lyrics?>(
+          key: ValueKey(song.id),
+          future: MediaLibrary.getLyrics(song),
+          builder: (context, snapshot) => Row(
+            children: [
+              for (final (i, (icon, label)) in [
+                (Icons.queue_music_rounded, 'Up next'),
+                (Icons.graphic_eq_rounded, 'Visualizer'),
+                if (snapshot.data != null) (Icons.lyrics_outlined, 'Lyrics'),
+              ].indexed) ...[
+                if (i > 0) const SizedBox(width: 10),
+                Expanded(
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: panel == i ? AppColors.accent : Colors.white,
+                      backgroundColor: panel == i ? AppColors.accentFaint : const Color(0x14FFFFFF),
+                      minimumSize: const Size(0, 44),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    // Pressed again, the open one closes.
+                    onPressed: wide
+                        ? () => setState(() => _panel = _panel == i ? null : i)
+                        : () => _showQueueSheet(context, i),
+                    icon: Icon(icon, size: 20),
+                    label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
                   ),
                 ),
-              const SizedBox(height: 10),
-              _FormatLine(song: song),
+              ],
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _FavouritePill(song: song),
-            if (album != null && !album.isSingle) ...[
-              const SizedBox(width: 8),
-              _ActionChip(
-                icon: Icons.album_outlined,
-                label: 'Album',
-                onTap: () => openPage(CollectionScreen.album(album)),
-              ),
-            ],
-          ],
-        ),
-        const SizedBox(height: 20),
-        _SeekBar(player: player),
-        const SizedBox(height: 14),
-        _Controls(player: player),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          // Lyrics only when the song has some.
-          child: FutureBuilder<Lyrics?>(
-            key: ValueKey(song.id),
-            future: MediaLibrary.getLyrics(song),
-            builder: (context, snapshot) => Row(
+      ),
+      const SizedBox(height: 4),
+    ];
+
+    if (wide) {
+      return Column(
+        children: [
+          header,
+          Expanded(
+            child: Row(
               children: [
-                for (final (i, (icon, label)) in [
-                  (Icons.queue_music_rounded, 'Up next'),
-                  (Icons.graphic_eq_rounded, 'Visualizer'),
-                  if (snapshot.data != null) (Icons.lyrics_outlined, 'Lyrics'),
-                ].indexed) ...[
-                  if (i > 0) const SizedBox(width: 10),
-                  Expanded(
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        backgroundColor: const Color(0x14FFFFFF),
-                        minimumSize: const Size(0, 44),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                Expanded(
+                  child: Padding(padding: const EdgeInsets.fromLTRB(48, 8, 24, 48), child: artwork),
+                ),
+                Expanded(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 560),
+                      child: Padding(
+                        padding: EdgeInsets.only(right: 24, bottom: panel == null ? 48 : 16),
+                        // An open tab takes the room under the buttons, which
+                        // move up to make it.
+                        child: panel == null
+                            ? Column(mainAxisSize: MainAxisSize.min, children: details)
+                            : Column(
+                                children: [
+                                  ...details,
+                                  const SizedBox(height: 8),
+                                  Expanded(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(AppRadius.large),
+                                      child: ColoredBox(color: const Color(0x14FFFFFF), child: _panelView(panel)),
+                                    ),
+                                  ),
+                                ],
+                              ),
                       ),
-                      onPressed: () => _showQueueSheet(context, i),
-                      icon: Icon(icon, size: 20),
-                      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ),
+        ],
+      );
+    }
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: Column(
+          children: [
+            header,
+            Expanded(
+              child: Padding(padding: const EdgeInsets.fromLTRB(24, 16, 24, 8), child: artwork),
+            ),
+            ...details,
+          ],
         ),
-        const SizedBox(height: 4),
-      ],
+      ),
     );
   }
 }
@@ -745,18 +840,15 @@ class _Controls extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         StreamBuilder<bool>(
-          stream: player.shuffleModeEnabledStream,
-          initialData: player.shuffleModeEnabled,
+          stream: MusicScope.read(context).shufflingStream,
+          initialData: MusicScope.read(context).shuffling,
           builder: (context, snapshot) {
             final enabled = snapshot.data ?? false;
             return IconButton(
               tooltip: enabled ? 'Shuffle: on' : 'Shuffle: off',
               icon: const Icon(Icons.shuffle_rounded),
               color: enabled ? AppColors.accent : AppColors.textTertiary,
-              onPressed: () async {
-                if (!enabled) await player.shuffle();
-                await player.setShuffleModeEnabled(!enabled);
-              },
+              onPressed: MusicScope.read(context).toggleShuffle,
             );
           },
         ),
@@ -1060,11 +1152,7 @@ class _PlayerSheetState extends State<_PlayerSheet> with TickerProviderStateMixi
                 controller: tabs,
                 children: [
                   const _UpNextList(),
-                  // It listens to Android's audio output; desktop has no such hook yet.
-                  if (isDesktop)
-                    const MessageView(icon: Icons.graphic_eq_rounded, text: "The visualizer isn't available on desktop yet.")
-                  else
-                    const VisualizerView(),
+                  const VisualizerView(),
                   if (_hadLyrics) lyrics == null ? const SizedBox.shrink() : LyricsView(lyrics: lyrics),
                 ],
               ),

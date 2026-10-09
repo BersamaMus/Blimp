@@ -38,7 +38,7 @@ enum VisualizerStyle {
 
 /// One capture of what the player is outputting.
 class AudioFrame {
-  const AudioFrame(this.bands, this.fineBands, this.wave, this.volume);
+  const AudioFrame(this.bands, this.fineBands, this.wave, this.volume, {this.wholePc = false});
 
   /// Frequency levels from low to high, each 0..1.
   final Float64List bands;
@@ -51,19 +51,26 @@ class AudioFrame {
 
   /// The music volume step; at 0 nothing is heard, so nothing moves.
   final int volume;
+
+  /// Windows: this version can't share just Blimp's audio, so this is
+  /// everything the PC plays, other apps' sound included.
+  final bool wholePc;
 }
 
 const _channel = EventChannel('blimp/visualizer');
 
 /// Captures of the audio playing in [audioSessionId], about 20 a second.
 /// Errors if Android won't allow it (for example, without the microphone
-/// permission it requires).
+/// permission it requires). On Windows the session is ignored: it's Blimp's
+/// own audio (windows/runner/visualizer.cpp), and [volume] gives the
+/// in-app volume, as a step 0..100, in place of Android's.
 ///
 /// Heights follow how loud the music is compared with its loud parts, so a
 /// buildup sits visibly below the drop that follows.
-Stream<AudioFrame> audioFrames(int audioSessionId) => _channel.receiveBroadcastStream(audioSessionId).map((event) {
-      final volume = event['volume'] as int;
-      final gain = _loudness.gain((event['rms'] as num).toDouble(), volume);
+Stream<AudioFrame> audioFrames(int audioSessionId, {int Function()? volume}) =>
+    _channel.receiveBroadcastStream(audioSessionId).map((event) {
+      final step = event['volume'] as int? ?? volume?.call() ?? 1;
+      final gain = _loudness.gain((event['rms'] as num).toDouble(), step);
       final bands = event['bands'] as Float64List;
       final fineBands = event['fineBands'] as Float64List;
       final wave = event['wave'] as Float64List;
@@ -72,7 +79,7 @@ Stream<AudioFrame> audioFrames(int audioSessionId) => _channel.receiveBroadcastS
           values[i] *= gain;
         }
       }
-      return AudioFrame(bands, fineBands, wave, volume);
+      return AudioFrame(bands, fineBands, wave, step, wholePc: event['wholePc'] == true);
     });
 
 /// Kept while the app runs, so reopening the tab mid-buildup doesn't take

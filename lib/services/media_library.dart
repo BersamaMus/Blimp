@@ -244,6 +244,7 @@ class MediaLibrary {
   MediaLibrary._();
 
   static const _channel = MethodChannel('blimp/media');
+  static const _shareChannel = MethodChannel('blimp/share');
 
   /// Pixel size of list thumbnails and of the full-screen player artwork.
   static const thumbnailSize = 256;
@@ -291,9 +292,11 @@ class MediaLibrary {
   /// saved.
   static Future<Uint8List?> getWaveform(int songId) {
     if (_waveforms[songId] case final waveform?) return waveform;
-    return _waveforms[songId] = _channel
-        .invokeMethod<Uint8List>('getWaveform', {'id': songId, 'points': waveformPoints})
-        .then((levels) {
+    return _waveforms[songId] =
+        (isDesktop
+                ? DesktopLibrary.waveform(songId, waveformPoints)
+                : _channel.invokeMethod<Uint8List>('getWaveform', {'id': songId, 'points': waveformPoints}))
+            .then((levels) {
           if (levels != null) _loadedWaveforms[songId] = levels;
           return levels;
         })
@@ -392,9 +395,19 @@ class MediaLibrary {
         .catchError((Object _) => null);
   }
 
-  /// Sends the song's file to another app, through Android's share sheet.
+  /// Sends the song's file to another app, through Android's share sheet or
+  /// Windows' share panel (windows/runner/share.cpp).
   static Future<void> shareSong(Song song) async {
-    if (isDesktop) return;
+    if (isDesktop) {
+      if (song.path case final path?) {
+        try {
+          await _shareChannel.invokeMethod('share', {'path': path, 'title': song.title});
+        } on MissingPluginException {
+          // Only Windows has a share panel.
+        }
+      }
+      return;
+    }
     try {
       await _channel.invokeMethod('shareSong', {'id': song.id, 'title': song.title});
     } on PlatformException {

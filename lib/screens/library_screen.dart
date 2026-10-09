@@ -12,6 +12,7 @@ import '../services/music_controller.dart';
 import '../theme.dart';
 import '../widgets/shelf.dart';
 import '../widgets/song_artwork.dart';
+import '../widgets/song_table.dart';
 import '../widgets/song_tile.dart';
 import 'app_shell.dart';
 import 'artist_screen.dart';
@@ -298,7 +299,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return newest;
   }
 
-  List<Song> _sortedSongs(MusicController music) => switch (_sort) {
+  /// Songs in the order shown: by the table's column if one was clicked,
+  /// otherwise by the sort menu.
+  List<Song> _sortedSongs(MusicController music) => switch (_tableSort) {
+    final column? => [..._songs(music, music.songs)]
+      ..sort((a, b) {
+        final c = column.compare(a, b);
+        // Ties by title, so rows don't jump.
+        return c != 0 ? (_descending ? -c : c) : SongColumn.title.compare(a, b);
+      }),
+    null => _menuSortedSongs(music),
+  };
+
+  /// The songs table's column clicked, and whether it was clicked again to
+  /// reverse it. Choosing from the sort menu clears it.
+  SongColumn? _column;
+  bool _descending = false;
+
+  /// [_column], where it applies: only to Songs.
+  SongColumn? get _tableSort => !_foldersMode && _filter == _Filter.songs ? _column : null;
+
+  void _sortByColumn(SongColumn column) => setState(() {
+    _descending = _column == column && !_descending;
+    _column = column;
+  });
+
+  List<Song> _menuSortedSongs(MusicController music) => switch (_sort) {
     _Sort.recentActivity => [
       for (final k
           in [
@@ -468,6 +494,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         subtitle: item.subtitle,
                         hiRes: item.hiRes,
                         onTap: item.onTap,
+                        onPlay: item.songs.isEmpty ? null : () => music.playSongs(item.songs),
                       );
                     },
                   );
@@ -512,9 +539,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
           ] else
             PopupMenuButton<_Sort>(
-              initialValue: _sort,
+              initialValue: _tableSort == null ? _sort : null,
               position: PopupMenuPosition.under,
-              onSelected: (sort) => setState(() => _sort = sort),
+              onSelected: (sort) => setState(() {
+                _sort = sort;
+                _column = null;
+              }),
               itemBuilder: (_) => [for (final s in _Sort.values) PopupMenuItem(value: s, child: Text(s.label))],
               child: Container(
                 padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
@@ -523,7 +553,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   children: [
                     Icon(Icons.sort_rounded, size: 18, color: AppColors.accent),
                     const SizedBox(width: 6),
-                    Text(_sort.label, style: Theme.of(context).textTheme.labelLarge),
+                    Text(_tableSort?.label ?? _sort.label, style: Theme.of(context).textTheme.labelLarge),
                     const Icon(Icons.expand_more_rounded, size: 20, color: AppColors.textSecondary),
                   ],
                 ),
@@ -589,16 +619,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
           ),
         ),
-      SliverList.builder(
-        itemCount: songs.length,
-        itemBuilder: (context, i) => SongTile(
-          song: songs[i],
-          subtitle: _sort == _Sort.year && songs[i].year != null
-              ? [songs[i].artistName, ?songs[i].album, songs[i].year].join(' • ')
-              : null,
-          onTap: () => music.playSongs(songs, index: i),
+      // A wide desktop window lists them as a table, sorted by its columns.
+      if (DesktopFrame.showsTabs(context)) ...[
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: SongTableHeaderDelegate(
+            SongTableHeader(sortedBy: _tableSort, descending: _descending, onSort: _sortByColumn),
+          ),
         ),
-      ),
+        SliverList.builder(
+          itemCount: songs.length,
+          itemBuilder: (context, i) => SongTableRow(song: songs[i], onTap: () => music.playSongs(songs, index: i)),
+        ),
+      ] else
+        SliverList.builder(
+          itemCount: songs.length,
+          itemBuilder: (context, i) => SongTile(
+            song: songs[i],
+            subtitle: _sort == _Sort.year && songs[i].year != null
+                ? [songs[i].artistName, ?songs[i].album, songs[i].year].join(' • ')
+                : null,
+            onTap: () => music.playSongs(songs, index: i),
+          ),
+        ),
     ];
   }
 }

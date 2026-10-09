@@ -31,6 +31,9 @@ Compression=lzma2
 SolidCompression=yes
 ; Closes a running Blimp before updating it.
 CloseApplications=yes
+; Blimp's single-instance mutex (windows/runner/main.cpp), so setup also finds
+; it running in the background, in the tray.
+AppMutex=Blimp.SingleInstance
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

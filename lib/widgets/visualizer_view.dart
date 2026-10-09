@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../services/desktop_library.dart';
 import '../services/music_controller.dart';
 import '../services/visualizer.dart';
 import '../theme.dart';
@@ -50,6 +50,10 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
   bool _volumeOff = false;
   Float64List? _waveTargets;
 
+  /// Windows: whether this version captures everything the PC plays rather
+  /// than just Blimp, for a note saying so.
+  bool _wholePc = false;
+
   MusicController? _musicOrNull;
   MusicController get _music => _musicOrNull!;
 
@@ -58,8 +62,6 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkPermission();
-    _signal.detail = _neededDetail;
-    SchedulerBinding.instance.addTimingsCallback(_onTimings);
   }
 
 
@@ -85,7 +87,7 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
   void _sync() {
     if (_showing) {
       _startTicker();
-      if (_sessionSub == null) _startLive();
+      if (_playingSub == null) _startLive();
     } else {
       _stopTicker();
       _stopLive();
@@ -102,7 +104,6 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SchedulerBinding.instance.removeTimingsCallback(_onTimings);
     _stopTicker();
     _ticker.dispose();
     _stopLive();
@@ -127,7 +128,9 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
     }
   }
 
-  Future<void> _checkPermission() => _onPermission(Permission.microphone.status);
+  // Windows asks for no permission to read what Blimp plays.
+  Future<void> _checkPermission() =>
+      _onPermission(isDesktop ? Future.value(PermissionStatus.granted) : Permission.microphone.status);
 
   Future<void> _requestPermission() async {
     if (_permission?.isPermanentlyDenied ?? false) {
@@ -166,26 +169,38 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
       if (playing && _showing) _startTicker();
       if (playing != _playing && mounted) setState(() => _playing = playing);
     });
+    // Windows captures what Blimp plays, whatever its session; the in-app
+    // volume stands in for Android's volume step.
+    if (isDesktop) {
+      _framesSub = audioFrames(0, volume: () => (_music.volume.value * 100).round()).listen(_onFrame, onError: _onError);
+      return;
+    }
     _sessionSub = _music.player.androidAudioSessionIdStream.listen((session) {
       _framesSub?.cancel();
       _framesSub = null;
       if (session == null) return;
-      _framesSub = audioFrames(session).listen(
-        (frame) {
-          _bandTargets = frame.bands;
-          _fineTargets = frame.fineBands;
-          _waveTargets = frame.wave;
-          _signal.onCapture(frame.bands);
-          final volumeOff = frame.volume == 0;
-          if (volumeOff != _volumeOff && mounted) setState(() => _volumeOff = volumeOff);
-        },
-        onError: (Object _) {
-          if (!mounted) return;
-          setState(() => _unavailable = true);
-          _sync();
-        },
-      );
+      _framesSub = audioFrames(session).listen(_onFrame, onError: _onError);
     });
+  }
+
+  void _onFrame(AudioFrame frame) {
+    _bandTargets = frame.bands;
+    _fineTargets = frame.fineBands;
+    _waveTargets = frame.wave;
+    _signal.onCapture(frame.bands);
+    final volumeOff = frame.volume == 0;
+    if ((volumeOff != _volumeOff || frame.wholePc != _wholePc) && mounted) {
+      setState(() {
+        _volumeOff = volumeOff;
+        _wholePc = frame.wholePc;
+      });
+    }
+  }
+
+  void _onError(Object _) {
+    if (!mounted) return;
+    setState(() => _unavailable = true);
+    _sync();
   }
 
   void _stopLive() {
@@ -225,46 +240,6 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
   }
 
   bool _wasIdle = false;
-
-  /// How far this phone has needed [_VisualizerSignal.detail] stepped down;
-  /// remembered while the app runs, so reopening the tab doesn't stutter
-  /// while it finds out again.
-  static int _neededDetail = 0;
-
-  /// Frames counted towards the decision, and how many of them ran late.
-  int _framesSeen = 0;
-  int _framesLate = 0;
-
-  /// Watches how long frames take while the visualizer draws, and steps the
-  /// detail down one level whenever too many miss the screen's refresh,
-  /// judging again at the new level before going further.
-  void _onTimings(List<ui.FrameTiming> timings) {
-    if (!_running || _signal.detail >= 2 || !mounted) return;
-    final rate = View.of(context).display.refreshRate;
-    // Late means visibly late: half a frame over. Drawing times include
-    // waiting for the screen on some phones, so they sit just under one
-    // frame however little is drawn, and a frame a little over still shows
-    // in time often enough; counting those would step down for nothing.
-    final budget = Duration(microseconds: (1.5e6 / rate).round());
-    // Counted in seconds, so a 120Hz screen gets as long as a 60Hz one.
-    final warmUp = rate.round();
-    final judge = (rate * 2).round();
-    for (final timing in timings) {
-      // Opening the sheet (or a step down) stutters on any phone; judge from
-      // the second second.
-      if (++_framesSeen <= warmUp) continue;
-      if (timing.buildDuration > budget || timing.rasterDuration > budget) _framesLate++;
-    }
-    if (_framesSeen < warmUp + judge) return;
-    if (_framesLate > judge * 0.2) {
-      _neededDetail = _signal.detail = _signal.detail + 1;
-      // Judged afresh, warm-up included.
-      _framesSeen = 0;
-    } else {
-      _framesSeen = warmUp;
-    }
-    _framesLate = 0;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -332,6 +307,7 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
                       child: const _VolumeOffNote(),
                     ),
                   ),
+                  if (_wholePc) const Align(alignment: Alignment.bottomCenter, child: _WholePcNote()),
                 ],
               ),
             ),
@@ -400,15 +376,10 @@ class _Signal extends ChangeNotifier {
   static const _baseSpin = 0.12;
   static const _baseOrbit = 0.5;
 
-  /// How much is drawn, stepped down on phones that can't keep up (see
-  /// [_VisualizerViewState]): 0 is everything; 1 a lighter glow; 2 no glow,
-  /// half the sparks and no orbit tails. Every step keeps the screen's full
-  /// frame rate, which matters more to how smooth it looks than the glow.
-  int detail = 0;
-
-  bool get lite => detail >= 2;
-
-  int get _maxParticles => lite ? 60 : 160;
+  /// Kept light everywhere (no glow, few sparks, no orbit tails), so it runs
+  /// at the screen's full frame rate on any phone or PC, which matters more
+  /// to how smooth it looks than the extras.
+  static const _maxParticles = 60;
 
   /// Whether everything has come to rest, so there's nothing new to draw.
   bool get settled {
@@ -455,7 +426,7 @@ class _Signal extends ChangeNotifier {
     _spinSpeed += strength * 1.4 + big * 1.5;
     rings.add(_Ring(min(1.0, strength + 0.3 * big)));
     // Sparks burst out from the circle's edge, more and faster on big beats.
-    final count = ((8 + 16 * strength) * (1 + big) * (lite ? 0.5 : 1)).round();
+    final count = ((4 + 8 * strength) * (1 + big)).round();
     for (var i = 0; i < count && particles.length < _maxParticles; i++) {
       final angle = _random.nextDouble() * 2 * pi;
       final speed = (0.35 + _random.nextDouble() * 0.9) * (0.6 + strength);
@@ -650,6 +621,35 @@ class _VolumeOffNote extends StatelessWidget {
   }
 }
 
+/// Under the visualizer on older Windows, which can't share just one app's
+/// audio: says other apps' sound moves it too.
+class _WholePcNote extends StatelessWidget {
+  const _WholePcNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: const ShapeDecoration(color: AppColors.surfaceHigh, shape: StadiumBorder()),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              "This version of Windows can't share just Blimp's audio, so sound from other apps moves the "
+              'visualizer too. Windows 11 shows Blimp alone.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// "Style" dropdown at the bottom of the tab, above the song's genre (which
 /// sets the colours).
 class _StylePicker extends StatelessWidget {
@@ -732,38 +732,22 @@ class _VisualizerPainter extends CustomPainter {
     canvas.scale(zoom);
     canvas.translate(-center.dx, -center.dy);
 
-    // Bloom: the same drawing, blurred and added on top. One blur for the
-    // whole frame keeps it cheap, but it's still the costliest part, so lite
-    // mode leaves it out.
-    if (signal.detail < 2) {
-      canvas.saveLayer(
-        Offset.zero & size,
-        Paint()
-          ..blendMode = BlendMode.plus
-          ..color = const Color.fromRGBO(255, 255, 255, 0.55)
-          ..imageFilter = signal.detail == 0
-              ? ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12, tileMode: TileMode.decal)
-              : ui.ImageFilter.blur(sigmaX: 6, sigmaY: 6, tileMode: TileMode.decal),
-      );
-      _paintStyle(canvas, size, glow: true);
-      canvas.restore();
-    }
-    _paintStyle(canvas, size, glow: false);
+    _paintStyle(canvas, size);
     canvas.restore();
   }
 
-  void _paintStyle(Canvas canvas, Size size, {required bool glow}) {
+  void _paintStyle(Canvas canvas, Size size) {
     switch (style) {
       case VisualizerStyle.bars:
-        _paintBars(canvas, size, glow: glow);
+        _paintBars(canvas, size);
       case VisualizerStyle.mirror:
         _paintMirror(canvas, size);
       case VisualizerStyle.wave:
-        _paintWave(canvas, size, glow: glow);
+        _paintWave(canvas, size);
       case VisualizerStyle.radial:
         _paintRadial(canvas, size);
       case VisualizerStyle.pulse:
-        _paintPulse(canvas, size, glow: glow);
+        _paintPulse(canvas, size);
     }
   }
 
@@ -787,7 +771,7 @@ class _VisualizerPainter extends CustomPainter {
   }
 
   /// Bass on the left, treble on the right, rising from the bottom.
-  void _paintBars(Canvas canvas, Size size, {required bool glow}) {
+  void _paintBars(Canvas canvas, Size size) {
     const gap = 1.5;
     final width = (size.width - gap * (_fineBandCount - 1)) / _fineBandCount;
     final bottom = size.height * 0.9;
@@ -807,7 +791,7 @@ class _VisualizerPainter extends CustomPainter {
         RRect.fromLTRBAndCorners(left, bottom - height, left + width, bottom, topLeft: radius, topRight: radius),
         paint,
       );
-      if (!glow) canvas.drawRect(Rect.fromLTWH(left, bottom + 4, width, height * 0.08), reflection);
+      canvas.drawRect(Rect.fromLTWH(left, bottom + 4, width, height * 0.08), reflection);
     }
   }
 
@@ -834,7 +818,7 @@ class _VisualizerPainter extends CustomPainter {
 
   /// The waveform as a glowing line that thickens on beats, trailed by its
   /// last few shapes.
-  void _paintWave(Canvas canvas, Size size, {required bool glow}) {
+  void _paintWave(Canvas canvas, Size size) {
     final centerY = size.height / 2;
     final amplitude = size.height * 0.38 * (1 + 0.15 * signal.beat + 0.3 * signal.impact);
     Path path(Float64List wave, double scale) {
@@ -849,24 +833,22 @@ class _VisualizerPainter extends CustomPainter {
       return path;
     }
 
-    if (!glow) {
-      final trails = signal.waveTrail.length;
-      for (var t = trails - 1; t >= 0; t--) {
-        canvas.drawPath(
-          path(signal.waveTrail[t], 1 - 0.08 * (t + 1)),
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2
-            ..color = _colorAt(t / trails, 0.35 * (1 - t / trails)),
-        );
-      }
+    final trails = signal.waveTrail.length;
+    for (var t = trails - 1; t >= 0; t--) {
+      canvas.drawPath(
+        path(signal.waveTrail[t], 1 - 0.08 * (t + 1)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = _colorAt(t / trails, 0.35 * (1 - t / trails)),
+      );
     }
 
     canvas.drawPath(
       path(signal.wave, 1),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = (glow ? 8 : 3) + 3 * signal.beat + 4 * signal.impact
+        ..strokeWidth = 3 + 3 * signal.beat + 4 * signal.impact
         ..strokeJoin = StrokeJoin.round
         ..strokeCap = StrokeCap.round
         ..shader = LinearGradient(colors: [signal.low, signal.high]).createShader(Offset.zero & size),
@@ -877,7 +859,7 @@ class _VisualizerPainter extends CustomPainter {
   /// kick the spin and send out rings and sparks.
   void _paintRadial(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final extent = min(size.width, size.height) / 2;
+    final extent = _roundSize(size) / 2;
     final bass = signal.average(0, 6);
     final radius = _radialRadius(size) * signal.radialSwell;
     final maxLength = extent * 0.5;
@@ -919,32 +901,33 @@ class _VisualizerPainter extends CustomPainter {
 
   /// A liquid core whose edge ripples with the spectrum and wobbles on
   /// beats, a ring breathing with the mids, and dots on three tilted orbits
-  /// that pass behind and in front of the core, trailing tails that stretch
-  /// as the treble speeds them up. Shockwaves and sparks on beats.
-  void _paintPulse(Canvas canvas, Size size, {required bool glow}) {
+  /// that pass behind and in front of the core, speeding up with the
+  /// treble. Shockwaves and sparks on beats.
+  void _paintPulse(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final extent = min(size.width, size.height) * 0.26;
+    final extent = _roundSize(size) * 0.26;
+    // The orbits reach furthest, nearly upright: kept to what fits the
+    // height, while the rest grows with a wide view.
+    final orbitExtent = min(size.width, size.height) * 0.26;
     final bass = signal.average(0, 6);
     final mid = signal.average(6, 26);
     final punch = 1 + 0.18 * signal.beat + 0.2 * signal.impact;
 
     _paintRings(canvas, center, extent * 1.8);
-    if (!glow) {
-      // A soft halo; a gradient looks the same as blurring a circle at a
-      // fraction of the cost.
-      final halo = extent * (0.7 + bass * 0.7) * punch + extent * 0.3;
-      canvas.drawCircle(
-        center,
-        halo,
-        Paint()
-          ..shader = RadialGradient(
-            colors: [signal.low.withValues(alpha: 0.35), signal.low.withValues(alpha: 0.35), signal.low.withValues(alpha: 0)],
-            stops: const [0, 0.6, 1],
-          ).createShader(Rect.fromCircle(center: center, radius: halo)),
-      );
-    }
+    // A soft halo; a gradient looks the same as blurring a circle at a
+    // fraction of the cost.
+    final halo = extent * (0.7 + bass * 0.7) * punch + extent * 0.3;
+    canvas.drawCircle(
+      center,
+      halo,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [signal.low.withValues(alpha: 0.35), signal.low.withValues(alpha: 0.35), signal.low.withValues(alpha: 0)],
+          stops: const [0, 0.6, 1],
+        ).createShader(Rect.fromCircle(center: center, radius: halo)),
+    );
     // The far half of each orbit first, so the core hides what's behind it.
-    _paintOrbits(canvas, center, extent, front: false);
+    _paintOrbits(canvas, center, orbitExtent, front: false);
     canvas.drawCircle(
       center,
       extent * (1.0 + mid * 0.3) * punch,
@@ -954,7 +937,7 @@ class _VisualizerPainter extends CustomPainter {
         ..color = signal.high.withValues(alpha: 0.25 + mid * 0.5),
     );
     _paintBlob(canvas, center, extent * (0.55 + bass * 0.3) * punch);
-    _paintOrbits(canvas, center, extent, front: true);
+    _paintOrbits(canvas, center, orbitExtent, front: true);
     _paintParticles(canvas, center, extent * 1.8);
   }
 
@@ -1010,14 +993,10 @@ class _VisualizerPainter extends CustomPainter {
     (radius: 1.85, squash: 0.22, lean: 1.75, speed: 0.45, dots: 14),
   ];
 
-  /// The near ([front]) or far half of the orbiting dots and their tails.
-  /// Near dots are larger and brighter, far ones smaller and dimmer; each
-  /// dot is lit by a treble band.
+  /// The near ([front]) or far half of the orbiting dots. Near dots are
+  /// larger and brighter, far ones smaller and dimmer; each dot is lit by a
+  /// treble band.
   void _paintOrbits(Canvas canvas, Offset center, double extent, {required bool front}) {
-    // Lite mode leaves out the tails, the bulk of the circles drawn.
-    final tail = signal.lite ? 0 : 6;
-    // Radians between tail points: faster dots leave longer tails.
-    final step = 0.02 * signal.orbitSpeed;
     final paint = Paint();
     final track = Paint()
       ..style = PaintingStyle.stroke
@@ -1037,26 +1016,21 @@ class _VisualizerPainter extends CustomPainter {
       canvas.restore();
 
       for (var i = 0; i < orbit.dots; i++) {
-        final phase = signal.orbit * orbit.speed + i / orbit.dots * 2 * pi + o;
+        final angle = signal.orbit * orbit.speed + i / orbit.dots * 2 * pi + o;
+        // The orbit's lower half is the near side, passing in front.
+        final depth = sin(angle);
+        if ((depth >= 0) != front) continue;
         final level = signal.bands[26 + (i * 7 + o * 5) % (_bandCount - 26)];
         final color = _colorAt(i.isEven ? 1 : 0.5);
-        // Oldest tail point first, so the dot itself lands on top.
-        for (var k = tail; k >= 0; k--) {
-          final angle = phase - k * step * orbit.speed.sign;
-          // The orbit's lower half is the near side, passing in front.
-          final depth = sin(angle);
-          if ((depth >= 0) != front) continue;
-          final near = (depth + 1) / 2;
-          final fade = 1 - k / (tail + 1);
-          final x = cos(angle) * radius, y = depth * radius * orbit.squash;
-          paint.color = Color.lerp(color, Colors.white, 0.35 * near * level)!
-              .withValues(alpha: (0.35 + 0.65 * near) * (0.65 + 0.35 * level) * (k == 0 ? 1 : 0.6 * fade));
-          canvas.drawCircle(
-            center + Offset(x * lean.dx - y * lean.dy, x * lean.dy + y * lean.dx),
-            (2.4 + level * 3.5) * (0.55 + 0.7 * near) * (k == 0 ? 1 : 0.4 + 0.6 * fade),
-            paint,
-          );
-        }
+        final near = (depth + 1) / 2;
+        final x = cos(angle) * radius, y = depth * radius * orbit.squash;
+        paint.color = Color.lerp(color, Colors.white, 0.35 * near * level)!
+            .withValues(alpha: (0.35 + 0.65 * near) * (0.65 + 0.35 * level));
+        canvas.drawCircle(
+          center + Offset(x * lean.dx - y * lean.dy, x * lean.dy + y * lean.dx),
+          (2.4 + level * 3.5) * (0.55 + 0.7 * near),
+          paint,
+        );
       }
     }
   }
@@ -1088,4 +1062,13 @@ class _VisualizerPainter extends CustomPainter {
 }
 
 /// The Radial style's circle at rest, before [_Signal.radialSwell].
-double _radialRadius(Size size) => min(size.width, size.height) / 2 * 0.4;
+double _radialRadius(Size size) => _roundSize(size) / 2 * 0.4;
+
+/// The size the round styles (Radial and Pulse) are drawn to: the view's
+/// shorter side, or a little more in a wide view, such as the panel under a
+/// desktop player's buttons, where Bars and Wave spread across the width.
+/// Loud peaks may then just reach past the top and bottom.
+double _roundSize(Size size) {
+  final short = min(size.width, size.height);
+  return size.width > size.height ? short * min(size.width / size.height, 1.3) : short;
+}
