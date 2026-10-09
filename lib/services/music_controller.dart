@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'backup.dart';
 import 'catalog.dart';
+import 'desktop_library.dart';
 import 'folders.dart';
 import 'home_widgets.dart';
 import 'listening_log.dart';
@@ -245,8 +246,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> init() async {
     // As music: other apps and calls pause or duck playback, and it resumes
-    // after; unplugging headphones pauses it.
-    await (await AudioSession.instance).configure(const AudioSessionConfiguration.music());
+    // after; unplugging headphones pauses it. Phones only.
+    if (!isDesktop) await (await AudioSession.instance).configure(const AudioSessionConfiguration.music());
     final prefs = _prefs = await SharedPreferences.getInstance();
     _favouriteIds = _readIds(prefs, _favouritesKey);
     _historyIds = _readIds(prefs, _historyKey);
