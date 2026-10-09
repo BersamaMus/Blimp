@@ -1,5 +1,5 @@
 name: blimp
-description: "Blimp, a music player for the songs on your Android device."
+description: "Blimp, an offline music player for the songs on your device."
 publish_to: 'none'
 
 # name+build number: versionName and versionCode on Android. Raise the build
@@ -34,6 +34,23 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  msix: ^3.18.0
 
 flutter:
   uses-material-design: true
+
+# The Microsoft Store package: dart run msix:create
+# The three identity values come from Partner Center (the app's Product
+# management > Product identity page) and must match it exactly. The Store signs
+# the package, so it isn't signed here.
+msix_config:
+  display_name: Blimp
+  publisher_display_name: TODO-from-Partner-Center
+  identity_name: TODO-from-Partner-Center
+  publisher: CN=TODO-from-Partner-Center
+  msix_version: 1.0.0.0
+  logo_path: store_listing/icon_512.png
+  languages: en-us
+  store: true
+  output_path: build/msix
+  output_name: Blimp
