@@ -44,10 +44,10 @@ flutter:
 # management > Product identity page) and must match it exactly. The Store signs
 # the package, so it isn't signed here.
 msix_config:
-  display_name: Blimp
-  publisher_display_name: TODO-from-Partner-Center
-  identity_name: TODO-from-Partner-Center
-  publisher: CN=TODO-from-Partner-Center
+  display_name: Blimp Music Player
+  publisher_display_name: BersamaMus
+  identity_name: BersamaMus.BlimpMusicPlayer
+  publisher: CN=11D4E812-15F4-4555-8861-ABF21C21C9AC
   msix_version: 1.0.0.0
   logo_path: store_listing/icon_512.png
   languages: en-us
