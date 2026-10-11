@@ -25,7 +25,9 @@ dependencies:
   shared_preferences: ^2.5.6
   package_info_plus: ^10.2.2
   path_provider: ^2.1.6
-  just_audio_media_kit: ^2.1.0
+  # A copy that stops mpv loading a song's .lrc file; see packages/just_audio_media_kit/BLIMP_CHANGES.md.
+  just_audio_media_kit:
+    path: packages/just_audio_media_kit
   media_kit_libs_windows_audio: ^1.0.9
   audio_metadata_reader: ^1.8.0
   file_selector: ^1.1.0
