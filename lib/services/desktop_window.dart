@@ -28,6 +28,23 @@ class DesktopWindow {
   /// What closing the window does; changed in Settings.
   static final closeAction = ValueNotifier(CloseAction.ask);
 
+  /// Whether the window is the compact player: small, and above others.
+  static final compact = ValueNotifier(false);
+
+  /// Shrinks the window to the compact player, or back. Going compact, the
+  /// player shows before the window shrinks, so the app is never laid out
+  /// that small; coming back, the app returns once the window has grown
+  /// (Windows says so with "compactChanged").
+  static Future<void> setCompact(bool on) async {
+    if (on) compact.value = true;
+    try {
+      await _channel.invokeMethod('setCompact', on);
+    } on MissingPluginException {
+      // Only Windows has it.
+      compact.value = false;
+    }
+  }
+
   static late MusicController _music;
   static late Future<({CloseAction action, bool remember})?> Function() _ask;
   static bool _asking = false;
@@ -69,6 +86,8 @@ class DesktopWindow {
     switch (call.method) {
       case 'closeRequested':
         await _askAndClose();
+      case 'compactChanged':
+        compact.value = call.arguments == true;
       case 'tray':
         final player = _music.player;
         switch (call.arguments) {

@@ -22,6 +22,7 @@ import 'playlists.dart';
 import 'queue_order.dart';
 import 'resume_points.dart';
 import 'search_text.dart';
+import 'smart_playlists.dart';
 import 'visualizer.dart';
 
 enum LibraryStatus { loading, permissionDenied, ready }
@@ -194,6 +195,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   static const _queueIndexKey = 'queue_index';
   static const _unshuffledKey = 'queue_unshuffled_ids';
   static const _playlistsKey = 'playlists';
+  static const _smartPlaylistsKey = 'smart_playlists';
+  static const _ratingsKey = 'song_ratings';
   static const _hiddenFoldersKey = 'hidden_folders';
   static const _minSongSecondsKey = 'min_song_seconds';
   static const _speedKey = 'playback_speed';
@@ -261,6 +264,12 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     };
     _recentSearches = prefs.getStringList(_searchesKey) ?? [];
     _playlists = decodePlaylists(prefs.getString(_playlistsKey));
+    _smartPlaylists = decodeSmartPlaylists(prefs.getString(_smartPlaylistsKey));
+    _ratings = {
+      for (final entry in prefs.getStringList(_ratingsKey) ?? const <String>[])
+        if (entry.split(':') case [final id, final rating])
+          if ((int.tryParse(id), int.tryParse(rating)) case (final int i, final int r) when r >= 1 && r <= 5) i: r,
+    };
     _readSettings(prefs);
     try {
       _log = await ListeningLog.open();
@@ -517,7 +526,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   static const _quickPickCount = 20;
 
-  void _shuffleQuickPicks() => _quickPicks = ([...songs]..shuffle()).take(_quickPickCount).toList();
+  void _shuffleQuickPicks() =>
+      _quickPicks = ([for (final s in songs) if (!isUnwanted(s)) s]..shuffle()).take(_quickPickCount).toList();
 
   /// Picks a new random set, for the refresh button on Home.
   void reshuffleQuickPicks() {
@@ -780,6 +790,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _changed.add(MusicAspect.stats);
     _historyIds.clear();
     _playCounts.clear();
+    _lastPlayed = null;
     _saveIds(_historyKey, _historyIds);
     _invalidateHistory();
     _prefs?.remove(_playCountsKey);
@@ -921,6 +932,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _playCountsKey: SongIds.keyed,
     _resumeKey: SongIds.keyed,
     _playlistsKey: SongIds.playlists,
+    _ratingsKey: SongIds.keyed,
   };
   static const _backedUpSettings = [
     _searchesKey,
@@ -940,6 +952,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _speedKey,
     _normalizeKey,
     _fadeKey,
+    _smartPlaylistsKey,
   ];
 
   /// A backup of everything the user has made and set, as a file's text.
@@ -989,6 +1002,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     if (save) {
       log.append(ListenEvent(songId: song.id, endedAt: DateTime.now(), listenedMs: ms, continued: _listenContinues));
       _statsCache.clear();
+      _lastPlayed = null;
       _notify({MusicAspect.stats});
     }
     // The next piece continues this listen only if part of it is saved; an
@@ -1056,6 +1070,119 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _favouriteSet = null;
     _saveIds(_favouritesKey, _favouriteIds);
     _notify({MusicAspect.favourites});
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ratings
+
+  /// Stars out of five, by song id; unrated songs aren't in it.
+  Map<int, int> _ratings = {};
+
+  /// The song's stars, 1 to 5; 0 if it isn't rated.
+  int rating(Song song) => _ratings[song.id] ?? 0;
+
+  /// Rates [song] 1 to 5 stars; 0 takes its rating away. Told with the
+  /// favourites, which also say what the user thinks of a song.
+  void setRating(Song song, int stars) {
+    if (stars <= 0) {
+      _ratings.remove(song.id);
+    } else {
+      _ratings[song.id] = stars.clamp(1, 5);
+    }
+    _prefs?.setStringList(_ratingsKey, [for (final MapEntry(:key, :value) in _ratings.entries) '$key:$value']);
+    _notify({MusicAspect.favourites});
+  }
+
+  /// Rated one star: never picked for the user (Quick picks, autoplay,
+  /// radio), though it still plays when chosen.
+  bool isUnwanted(Song song) => _ratings[song.id] == 1;
+
+  /// When each song was last listened to, from the listening log.
+  Map<int, DateTime>? _lastPlayed;
+
+  /// When [song] was last listened to; null if never (or not since history
+  /// was cleared).
+  DateTime? lastPlayed(Song song) => (_lastPlayed ??= {
+    for (final event in _log?.events ?? const <ListenEvent>[]) event.songId: event.endedAt,
+  })[song.id];
+
+  /// Before [gone]'s file is thrown away as a copy of [kept]: moves what the
+  /// user has said about it over to [kept], so it stays a favourite, in its
+  /// playlists, rated, and counted.
+  void mergeSongInto(Song gone, Song kept) {
+    if (_favouriteIds.contains(gone.id)) {
+      final at = _favouriteIds.indexOf(gone.id);
+      _favouriteIds.remove(gone.id);
+      if (!_favouriteIds.contains(kept.id)) _favouriteIds.insert(at, kept.id);
+      _favouriteSongs = null;
+      _favouriteSet = null;
+      _saveIds(_favouritesKey, _favouriteIds);
+    }
+    for (final playlist in _playlists) {
+      final at = playlist.songIds.indexOf(gone.id);
+      if (at < 0) continue;
+      playlist.songIds.removeAt(at);
+      if (!playlist.songIds.contains(kept.id)) playlist.songIds.insert(at, kept.id);
+      _playlistSongs.remove(playlist.id);
+    }
+    _prefs?.setString(_playlistsKey, encodePlaylists(_playlists));
+    if (_ratings.remove(gone.id) case final stars? when !_ratings.containsKey(kept.id)) _ratings[kept.id] = stars;
+    _prefs?.setStringList(_ratingsKey, [for (final MapEntry(:key, :value) in _ratings.entries) '$key:$value']);
+    if (_playCounts.remove(gone.id) case final plays?) {
+      _playCounts[kept.id] = (_playCounts[kept.id] ?? 0) + plays;
+      _prefs?.setStringList(_playCountsKey, [for (final MapEntry(:key, :value) in _playCounts.entries) '$key:$value']);
+      _invalidateHistory();
+    }
+    _notify({MusicAspect.favourites, MusicAspect.playlists, MusicAspect.history});
+  }
+
+  // ---------------------------------------------------------------------------
+  // Smart playlists
+
+  /// Newest first.
+  List<SmartPlaylist> _smartPlaylists = [];
+
+  List<SmartPlaylist> get smartPlaylists => List.unmodifiable(_smartPlaylists);
+
+  SmartPlaylist? smartPlaylistWithId(String id) => _smartPlaylists.where((p) => p.id == id).firstOrNull;
+
+  late final _smartFacts = SmartFacts(
+    plays: playCount,
+    rating: rating,
+    lastPlayed: lastPlayed,
+    isFavourite: isFavourite,
+    historyRank: (song) => lastPlayedRank([song]),
+  );
+
+  /// The library's songs that [playlist] picks, in its order; also the
+  /// editor's preview of one not saved yet.
+  List<Song> smartPlaylistSongs(SmartPlaylist playlist) => pickSmartPlaylistSongs(playlist, songs, _smartFacts);
+
+  void _saveSmartPlaylists() {
+    _prefs?.setString(_smartPlaylistsKey, encodeSmartPlaylists(_smartPlaylists));
+    _notify({MusicAspect.playlists});
+  }
+
+  /// Adds [playlist], or saves the changes to it if it's already here.
+  void saveSmartPlaylist(SmartPlaylist playlist) {
+    final at = _smartPlaylists.indexWhere((p) => p.id == playlist.id);
+    if (at < 0) {
+      _smartPlaylists.insert(0, playlist);
+    } else {
+      _smartPlaylists[at] = playlist;
+    }
+    _saveSmartPlaylists();
+  }
+
+  void deleteSmartPlaylist(SmartPlaylist playlist) {
+    _smartPlaylists.removeWhere((p) => p.id == playlist.id);
+    _saveSmartPlaylists();
+  }
+
+  /// Puts a deleted [playlist] back where it was, to undo [deleteSmartPlaylist].
+  void restoreSmartPlaylist(SmartPlaylist playlist, int index) {
+    _smartPlaylists.insert(index.clamp(0, _smartPlaylists.length), playlist);
+    _saveSmartPlaylists();
   }
 
   // ---------------------------------------------------------------------------
@@ -1404,9 +1531,46 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   /// The song a queue item plays. Queue items carry a [MediaItem] (what the
   /// notification and lock screen show) whose id is the song's id.
   Song? songOf(IndexedAudioSource? source) => switch (source?.tag) {
-        final MediaItem item => _scannedById[int.tryParse(item.id)],
+        final MediaItem item => switch (int.tryParse(item.id)) {
+          final id => _scannedById[id] ?? _opened[id],
+        },
         _ => null,
       };
+
+  /// Songs opened with Blimp that aren't in the library, by id: from
+  /// outside the music folder, or another app's file on the phone.
+  final Map<int, Song> _opened = {};
+
+  /// Plays files opened with Blimp (or dragged onto it on desktop), once the
+  /// app has started. On desktop each is a path, perhaps a folder; on the
+  /// phone a URI, with the library's id for it when Android knows it.
+  Future<void> playOpened(List<({String? path, String? uri, int? id, String? name})> files) async {
+    await ready;
+    final List<Song> list;
+    if (isDesktop) {
+      list = await DesktopLibrary.songsAt([for (final f in files) ?f.path], known: (id) => _scannedById[id]);
+    } else {
+      list = [
+        for (final f in files)
+          if (_scannedById[f.id] case final song?)
+            song
+          else if (f.uri case final uri?)
+            Song(
+              id: DesktopLibrary.stableId(uri),
+              title: switch (f.name) {
+                final name? when name.contains('.') => name.substring(0, name.lastIndexOf('.')),
+                final name? => name,
+                null => 'Unknown title',
+              },
+              uri: uri,
+            ),
+      ];
+    }
+    for (final song in list) {
+      if (!_scannedById.containsKey(song.id)) _opened[song.id] = song;
+    }
+    await playSongs(list);
+  }
 
   static AudioSource _source(Song song, {bool autoplay = false}) => AudioSource.uri(
         Uri.parse(song.uri),
@@ -1569,6 +1733,18 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Done once the last session's queue is loaded back, or found to be gone.
   final _queueRestored = Completer<void>();
+
+  /// The user's songs in the queue, in play order, then the rest of the list
+  /// they're from that isn't queued yet; not autoplay's. What saving the
+  /// queue as a playlist saves.
+  List<Song> get queuedSongs {
+    final state = player.sequenceState;
+    return [
+      for (final source in state.effectiveSequence)
+        if (!isAutoplay(source)) ?songOf(source),
+      ..._upcoming,
+    ];
+  }
 
   /// Saves the queue, so the next launch (or a home screen widget) can pick
   /// up where it left off. Autoplay's songs are saved with an "a" in front.
@@ -1751,7 +1927,9 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     // Also by name: libraries often hold the same song twice.
     String nameOf(Song s) => '${s.title.toLowerCase()}|${s.artist?.toLowerCase()}';
     final excludedNames = {for (final song in exclude) nameOf(song)};
-    final fresh = songs.where((s) => !exclude.contains(s) && !excludedNames.contains(nameOf(s))).toList();
+    final fresh = songs
+        .where((s) => !exclude.contains(s) && !excludedNames.contains(nameOf(s)) && !isUnwanted(s))
+        .toList();
 
     bool close(Song s) => artists.contains(s.artist) || albums.contains(s.album);
     bool sameGenre(Song s) => genres.contains(s.genre);

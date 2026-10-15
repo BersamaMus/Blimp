@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../services/desktop_window.dart';
 import '../services/home_widgets.dart';
 import '../services/music_controller.dart';
+import '../services/open_files.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/shelf.dart';
@@ -12,6 +13,7 @@ import 'collection_screen.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
 import 'now_playing_screen.dart';
+import 'settings_screen.dart';
 import 'stats_screen.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -38,7 +40,7 @@ const wideLayoutWidth = 840.0;
 const readableWidth = 1400.0;
 
 /// Switches to the Stats tab, closing the player or any sheet first.
-void openStatsTab() => _shellKey.currentState?._showTab(2);
+void openStatsTab() => _shellKey.currentState?._showTab(3);
 
 class AppShell extends StatefulWidget {
   AppShell() : super(key: _shellKey);
@@ -56,8 +58,24 @@ class _AppShellState extends State<AppShell> {
       selectedIcon: Icons.library_music_rounded,
       root: LibraryScreen(),
     ),
+    (
+      label: 'Playlists',
+      icon: Icons.queue_music_outlined,
+      selectedIcon: Icons.queue_music_rounded,
+      root: LibraryScreen.playlists(),
+    ),
     (label: 'Stats', icon: Icons.insights_outlined, selectedIcon: Icons.insights_rounded, root: StatsScreen()),
+    (
+      label: 'Settings',
+      icon: Icons.settings_outlined,
+      selectedIcon: Icons.settings_rounded,
+      root: SettingsScreen(),
+    ),
   ];
+
+  /// Settings, the last tab: in a wide window it's a button at the bottom of
+  /// the side tabs, by Quit, rather than one of them.
+  static final _settingsTab = _tabs.length - 1;
 
   final _navigatorKeys = [for (final _ in _tabs) GlobalKey<NavigatorState>()];
   @override
@@ -296,7 +314,7 @@ class DesktopFrame extends StatelessWidget {
                   child: ValueListenableBuilder(
                     valueListenable: _currentTab,
                     builder: (context, tab, _) => NavigationRail(
-                      selectedIndex: tab,
+                      selectedIndex: tab == _AppShellState._settingsTab ? null : tab,
                       onDestinationSelected: (i) => _shellKey.currentState?._selectTab(i),
                       groupAlignment: -0.9,
                       // At the bottom, away from the tabs.
@@ -305,17 +323,40 @@ class DesktopFrame extends StatelessWidget {
                           alignment: Alignment.bottomCenter,
                           child: Padding(
                             padding: const EdgeInsets.only(bottom: 16),
-                            child: IconButton(
-                              tooltip: 'Quit',
-                              icon: const Icon(Icons.power_settings_new_rounded),
-                              color: AppColors.textSecondary,
-                              onPressed: DesktopWindow.quit,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: 'Settings',
+                                  isSelected: tab == _AppShellState._settingsTab,
+                                  icon: const Icon(Icons.settings_outlined),
+                                  selectedIcon: const Icon(Icons.settings_rounded),
+                                  color: AppColors.textSecondary,
+                                  // Lit like a selected tab while it's showing.
+                                  style: tab == _AppShellState._settingsTab
+                                      ? IconButton.styleFrom(
+                                          foregroundColor: AppColors.accent,
+                                          backgroundColor: AppColors.accentSoft,
+                                          fixedSize: const Size(56, 32),
+                                          shape: const StadiumBorder(),
+                                        )
+                                      : null,
+                                  onPressed: () => _shellKey.currentState?._selectTab(_AppShellState._settingsTab),
+                                ),
+                                const SizedBox(height: 8),
+                                IconButton(
+                                  tooltip: 'Quit',
+                                  icon: const Icon(Icons.power_settings_new_rounded),
+                                  color: AppColors.textSecondary,
+                                  onPressed: DesktopWindow.quit,
+                                ),
+                              ],
                             ),
                           ),
                         ),
                       ),
                       destinations: [
-                        for (final tab in _AppShellState._tabs)
+                        for (final tab in _AppShellState._tabs.take(_AppShellState._settingsTab))
                           NavigationRailDestination(
                             icon: Icon(tab.icon),
                             selectedIcon: Icon(tab.selectedIcon),
@@ -330,7 +371,7 @@ class DesktopFrame extends StatelessWidget {
                   // Pages see the room beside the tabs as the window.
                   builder: (context, area) => MediaQuery(
                     data: media.copyWith(size: area.biggest),
-                    child: _SideTabs(shown: wide, child: child),
+                    child: _SideTabs(shown: wide, child: _DropZone(child: child)),
                   ),
                 ),
               ),
@@ -338,6 +379,49 @@ class DesktopFrame extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// While files are dragged over the window, says dropping them plays them.
+class _DropZone extends StatelessWidget {
+  const _DropZone({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        child,
+        ValueListenableBuilder(
+          valueListenable: OpenFiles.dragging,
+          builder: (context, dragging, _) => IgnorePointer(
+            child: AnimatedOpacity(
+              opacity: dragging ? 1 : 0,
+              duration: const Duration(milliseconds: 150),
+              child: Container(
+                margin: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.background.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(AppRadius.card),
+                  border: Border.all(color: AppColors.accent, width: 2),
+                ),
+                alignment: Alignment.center,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.play_circle_outline_rounded, size: 56, color: AppColors.accent),
+                    const SizedBox(height: 12),
+                    Text('Drop to play', style: Theme.of(context).textTheme.titleLarge),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

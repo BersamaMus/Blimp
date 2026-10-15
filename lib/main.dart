@@ -13,8 +13,10 @@ import 'services/desktop_window.dart';
 import 'services/home_widgets.dart';
 import 'services/media_controls.dart';
 import 'services/music_controller.dart';
+import 'services/open_files.dart';
 import 'theme.dart';
 import 'widgets/close_choice.dart';
+import 'widgets/compact_player.dart';
 import 'widgets/desktop_shortcuts.dart';
 import 'widgets/window_scale.dart';
 
@@ -22,6 +24,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (isDesktop) {
     // just_audio has no player of its own on desktop; media_kit's plays there.
+    // mpv opens the next song before this one ends, so albums meant to run
+    // on without a break (live sets, classical, mixes) do. Phones are
+    // gapless already: Android's player reads the files' gapless details.
+    JustAudioMediaKit.prefetchPlaylist = true;
     JustAudioMediaKit.ensureInitialized();
   } else {
     // Runs playback in a foreground service, so music keeps going with the
@@ -58,6 +64,8 @@ Future<void> main() async {
   // Closing the window to the tray, to keep playing; asked until remembered.
   if (Platform.isWindows) DesktopWindow.init(controller, ask: askCloseAction);
   controller.init();
+  // Songs opened with Blimp, or dragged onto it.
+  OpenFiles.init(controller);
   runApp(BetterMusicPlayerApp(controller: controller));
 }
 
@@ -95,8 +103,10 @@ class _BetterMusicPlayerAppState extends State<BetterMusicPlayerApp> {
         // Keyboard shortcuts and the side tabs, around every page and the
         // player, all zoomed with the window.
         builder: isDesktop
-            ? (context, child) => WindowScale(
-                child: DesktopShortcuts.forMusic(widget.controller, child: DesktopFrame(child: child!)),
+            ? (context, child) => CompactWindow(
+                child: WindowScale(
+                  child: DesktopShortcuts.forMusic(widget.controller, child: DesktopFrame(child: child!)),
+                ),
               )
             : null,
         home: AppShell(),

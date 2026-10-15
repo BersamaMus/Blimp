@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <vector>
 
+#include "utils.h"
+
 using flutter::EncodableMap;
 using flutter::EncodableValue;
 using winrt::Windows::ApplicationModel::DataTransfer::DataRequestedEventArgs;
@@ -20,21 +22,11 @@ using winrt::Windows::Storage::StorageFile;
 
 namespace {
 
-std::wstring Wide(const std::string& utf8) {
-  if (utf8.empty()) return std::wstring();
-  int length = MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
-                                   static_cast<int>(utf8.size()), nullptr, 0);
-  std::wstring wide(length, L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
-                      wide.data(), length);
-  return wide;
-}
-
 std::wstring WideString(const EncodableMap& map, const char* key) {
   auto it = map.find(EncodableValue(key));
   const auto* text =
       it == map.end() ? nullptr : std::get_if<std::string>(&it->second);
-  return text ? Wide(*text) : std::wstring();
+  return text ? Utf16FromUtf8(*text) : std::wstring();
 }
 
 }  // namespace

@@ -9,6 +9,7 @@ import '../services/folders.dart';
 import '../services/m3u.dart';
 import '../services/media_library.dart';
 import '../services/music_controller.dart';
+import '../services/smart_playlists.dart';
 import '../theme.dart';
 import '../widgets/shelf.dart';
 import '../widgets/song_artwork.dart';
@@ -22,6 +23,7 @@ import 'playlist_screen.dart';
 import '../widgets/add_to_playlist.dart';
 import '../widgets/app_menu.dart';
 import 'search_screen.dart';
+import 'smart_playlist_screen.dart';
 
 enum _Filter { playlists, songs, albums, artists }
 
@@ -80,14 +82,23 @@ class _Item {
 }
 
 class LibraryScreen extends StatefulWidget {
-  const LibraryScreen({super.key});
+  const LibraryScreen({super.key}) : playlists = false;
+
+  /// Just the playlists, for the Playlists tab.
+  const LibraryScreen.playlists({super.key}) : playlists = true;
+
+  final bool playlists;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  _Filter? _filter;
+  late _Filter? _filter = widget.playlists ? _Filter.playlists : null;
+
+  /// What the chips under the Library tab pick, after All. Playlists have
+  /// their own tab.
+  static const _chipFilters = [_Filter.songs, _Filter.albums, _Filter.artists];
   _Sort _sort = _Sort.recentActivity;
   bool _grid = false;
 
@@ -151,6 +162,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
       onTap: () => openPage(CollectionScreen.recentlyAdded()),
     ),
     ..._userPlaylists(music),
+    for (final playlist in music.smartPlaylists)
+      if (music.smartPlaylistSongs(playlist) case final songs)
+        _Item(
+          title: playlist.name,
+          subtitle: 'Smart playlist • ${describeLength(songs.length, Duration.zero)}',
+          art: const PlaylistArt.smart(),
+          songs: songs,
+          onTap: () => openSmartPlaylist(playlist),
+        ),
   ];
 
   List<_Item> _userPlaylists(MusicController music) => [
@@ -203,6 +223,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
     );
     openPage(PlaylistScreen(playlistId: playlist.id));
+  }
+
+  Future<void> _newSmartPlaylist() async {
+    final playlist = await Navigator.of(context).push<SmartPlaylist>(
+      MaterialPageRoute(builder: (_) => const SmartPlaylistEditor()),
+    );
+    if (playlist != null) openSmartPlaylist(playlist);
   }
 
   Future<void> _newPlaylist() async {
@@ -364,15 +391,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
       MusicAspect.playlists,
       MusicAspect.settings,
     });
-    _foldersMode = music.browseFolders;
+    _foldersMode = !widget.playlists && music.browseFolders;
     // A genre gone after a rescan (or hidden away) no longer narrows anything.
     if (!music.genres.contains(_genre)) _genre = null;
     final items = _foldersMode
         ? _folders(music)
         : switch (_filter) {
-            // Playlists have no genre, so a genre leaves them out.
-            null when _genre != null => [..._albums(music), ..._artists(music)],
-            null => [..._playlists(music).take(2), ..._userPlaylists(music), ..._albums(music), ..._artists(music)],
+            null => [..._albums(music), ..._artists(music)],
             _Filter.playlists => _playlists(music),
             _Filter.albums => _albums(music),
             _Filter.artists => _artists(music),
@@ -386,7 +411,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           SliverAppBar(
             pinned: true,
             titleSpacing: 16,
-            title: const Text('Library'),
+            title: Text(widget.playlists ? 'Playlists' : 'Library'),
             actions: [
               IconButton(
                 tooltip: 'History',
@@ -402,7 +427,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               const SizedBox(width: 8),
             ],
             // Two ways to browse: by tags (with the filter chips) or by folder.
-            bottom: PreferredSize(
+            bottom: widget.playlists ? null : PreferredSize(
               preferredSize: Size.fromHeight(_foldersMode ? 58 : 58 + 52),
               child: Column(
                 children: [
@@ -417,9 +442,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   if (!_foldersMode)
                     ChipBar(
-                      labels: const ['All', 'Playlists', 'Songs', 'Albums', 'Artists'],
-                      selected: _filter == null ? 0 : _filter!.index + 1,
-                      onSelected: (i) => setState(() => _filter = i == 0 ? null : _Filter.values[i - 1]),
+                      labels: const ['All', 'Songs', 'Albums', 'Artists'],
+                      selected: _filter == null ? 0 : _chipFilters.indexOf(_filter!) + 1,
+                      onSelected: (i) => setState(() => _filter = i == 0 ? null : _chipFilters[i - 1]),
                     ),
                 ],
               ),
@@ -560,6 +585,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
             ),
           const Spacer(),
+          if (!_foldersMode && _filter == _Filter.playlists)
+            IconButton(
+              tooltip: 'New smart playlist',
+              icon: const Icon(Icons.auto_awesome_outlined),
+              onPressed: _newSmartPlaylist,
+            ),
           if (!_foldersMode && _filter == _Filter.playlists)
             IconButton(
               tooltip: 'Import a playlist (M3U)',

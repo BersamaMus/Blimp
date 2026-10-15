@@ -22,7 +22,8 @@ class CollectionScreen extends StatefulWidget {
       album = album,
       isAlbum = true,
       ranked = false,
-      emptyText = '';
+      emptyText = '',
+      actions = const [];
 
   const CollectionScreen.playlist({
     super.key,
@@ -32,6 +33,7 @@ class CollectionScreen extends StatefulWidget {
     this.kindLine = 'Auto playlist',
     this.ranked = false,
     this.emptyText = 'No songs yet.',
+    this.actions = const [],
   }) : artistName = null,
        album = null,
        isAlbum = false;
@@ -97,6 +99,9 @@ class CollectionScreen extends StatefulWidget {
   final Album? album;
   final bool ranked;
   final String emptyText;
+
+  /// More buttons for the app bar, after Search.
+  final List<Widget> actions;
 
   @override
   State<CollectionScreen> createState() => _CollectionScreenState();
@@ -165,6 +170,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                 icon: const Icon(Icons.search),
                 onPressed: () => openPage(const SearchScreen()),
               ),
+              ...widget.actions,
             ],
           ),
         ),

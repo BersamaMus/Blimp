@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'desktop_library.dart';
@@ -32,33 +33,43 @@ class DesktopMediaControls {
   late final List<StreamSubscription<Object?>> _subs;
   late final Timer _timer;
 
-  /// The song [_art] is the cover of, and where that's saved.
+  /// The song [_art] is the cover of, and where that's saved once loaded.
   int? _artFor;
-  String? _art;
+  Future<String?>? _art;
+
+  /// What the controls last showed. The player's streams fire for more than
+  /// song changes; sending the same again makes Windows redraw the cover.
+  Map<String, Object?>? _shown;
 
   Future<void> _update() async {
     final song = _music.currentSong;
     if (song == null) {
       _artFor = null;
+      _shown = null;
       return _invoke('clear');
     }
     if (song.id != _artFor) {
       _artFor = song.id;
-      _art = null;
-      _art = await DesktopLibrary.artworkPath(song.id, MediaLibrary.thumbnailSize);
-      // Moved on while the cover loaded: that song's update comes instead.
-      if (_music.currentSong != song) return;
+      _art = DesktopLibrary.artworkPath(song.id, MediaLibrary.thumbnailSize);
     }
+    // Updates while the cover loads wait for it too, rather than showing
+    // the song without it in between.
+    final art = await _art;
+    // Moved on while the cover loaded: that song's update comes instead.
+    if (_music.currentSong != song) return;
     final player = _music.player;
-    await _invoke('update', {
+    final shown = {
       'title': song.title,
       'artist': song.artistName,
       'album': song.album ?? '',
-      'art': _art,
+      'art': art,
       'playing': player.playing,
       'canPrevious': true,
       'canNext': player.hasNext,
-    });
+    };
+    if (mapEquals(shown, _shown)) return;
+    _shown = shown;
+    await _invoke('update', shown);
     await _sendTimeline();
   }
 

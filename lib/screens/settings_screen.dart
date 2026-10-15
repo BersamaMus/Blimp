@@ -16,6 +16,7 @@ import '../theme.dart';
 import '../widgets/app_menu.dart';
 import '../widgets/shelf.dart';
 import '../widgets/song_options.dart';
+import 'duplicates_screen.dart';
 
 /// The top-level settings list.
 class SettingsScreen extends StatelessWidget {
@@ -447,6 +448,11 @@ class StorageSettingsScreen extends StatelessWidget {
               _ => '$hidden folders',
             },
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HiddenFoldersScreen())),
+          ),
+          _SettingsTile(
+            title: 'Duplicate songs',
+            subtitle: 'Find songs that are here more than once, and remove the extra copies',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DuplicatesScreen())),
           ),
           _SettingsTile(
             title: 'Ignore short files',

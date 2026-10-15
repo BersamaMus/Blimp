@@ -22,6 +22,17 @@ class Background {
   // one's window back instead.
   static constexpr UINT kShowMessage = WM_APP + 4;
 
+  // Posted to go into the compact player (WPARAM 1) or out of it (0): done
+  // after replying to Dart, not inside its call, where resizing the window
+  // stalls until something else happens.
+  static constexpr UINT kCompactMessage = WM_APP + 6;
+
+  // The compact player's size, and the smallest it can be made, at 100%.
+  static constexpr int kCompactWidth = 380;
+  static constexpr int kCompactHeight = 132;
+  static constexpr int kCompactMinWidth = 300;
+  static constexpr int kCompactMinHeight = 110;
+
   Background(flutter::BinaryMessenger* messenger, HWND window);
   ~Background();
 
@@ -43,6 +54,11 @@ class Background {
 
   // Closes the window for good, even with closing set to hide it.
   void Quit();
+
+  // The compact player: a small window kept above others, or back to the
+  // window as it was. Dart is told once the window has changed.
+  void SetCompact(bool compact);
+  bool compact() const { return compact_; }
 
  private:
   enum class CloseAction { kQuit, kAsk, kBackground };
@@ -69,6 +85,10 @@ class Background {
   CloseAction close_action_ = CloseAction::kQuit;
   bool in_tray_ = false;
   bool quitting_ = false;
+
+  // In the compact player, and where the window was before it.
+  bool compact_ = false;
+  WINDOWPLACEMENT normal_placement_{};
 };
 
 #endif  // RUNNER_BACKGROUND_H_

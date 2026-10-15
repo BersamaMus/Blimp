@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../screens/now_playing_screen.dart';
 import '../services/desktop_library.dart';
+import '../services/desktop_window.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
 import 'marquee_text.dart';
@@ -187,7 +189,16 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                               icon: const Icon(Icons.skip_next_rounded),
                               onPressed: player.hasNext ? player.seekToNext : null,
                             ),
-                            if (wide) ...[const SizedBox(width: 12), VolumeControl(music: music)],
+                            if (wide) ...[
+                              const SizedBox(width: 12),
+                              VolumeControl(music: music),
+                              if (Platform.isWindows)
+                                IconButton(
+                                  tooltip: 'Compact player',
+                                  icon: const Icon(Icons.picture_in_picture_alt_rounded),
+                                  onPressed: () => DesktopWindow.setCompact(true),
+                                ),
+                            ],
                             SizedBox(width: wide ? 12 : 4),
                           ],
                         ),

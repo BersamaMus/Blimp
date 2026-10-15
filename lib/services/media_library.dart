@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'desktop_library.dart';
 import 'genres.dart';
@@ -231,6 +232,8 @@ class _LruCache<K, V> {
     return _map[key] = value;
   }
 
+  void remove(K key) => _map.remove(key);
+
   void operator []=(K key, V value) {
     _map.remove(key);
     _map[key] = value;
@@ -245,6 +248,8 @@ class MediaLibrary {
 
   static const _channel = MethodChannel('blimp/media');
   static const _shareChannel = MethodChannel('blimp/share');
+  static const _filesChannel = MethodChannel('blimp/files');
+  static const _recycleChannel = MethodChannel('blimp/recycle_bin');
 
   /// Pixel size of list thumbnails and of the full-screen player artwork.
   static const thumbnailSize = 256;
@@ -413,6 +418,55 @@ class MediaLibrary {
     } on PlatformException {
       // The share sheet couldn't open; nothing else to do.
     }
+  }
+
+  /// Throws [songs]' files away: to the Recycle Bin on Windows, or Android's
+  /// trash (from Android 11; deleted on older versions), once the user agrees
+  /// in Android's dialog. False if they didn't, or it couldn't be done.
+  static Future<bool> trashSongs(List<Song> songs) async {
+    if (isDesktop) {
+      final paths = [for (final s in songs) ?s.path];
+      if (paths.isEmpty || paths.length != songs.length) return false;
+      try {
+        return await _recycleChannel.invokeMethod<bool>('recycle', paths) ?? false;
+      } on MissingPluginException {
+        return false;
+      } on PlatformException {
+        return false;
+      }
+    }
+    return writeWithAccess(
+      () => _filesChannel.invokeMethod<bool>('trashSongs', {
+        'ids': [for (final s in songs) s.id],
+      }),
+    );
+  }
+
+  /// Runs [change], a change to songs' files on Android. Android 9 and older
+  /// need the storage permission for it, so if it was turned down for want
+  /// of that, asks for it and tries again. False if it wasn't done.
+  static Future<bool> writeWithAccess(Future<bool?> Function() change) async {
+    try {
+      return await change() ?? false;
+    } on PlatformException catch (e) {
+      if (e.code != 'permission' || !(await Permission.storage.request()).isGranted) return false;
+      try {
+        return await change() ?? false;
+      } on PlatformException {
+        return false;
+      }
+    }
+  }
+
+  /// Forgets what's been loaded from the song's file (its cover, format and
+  /// lyrics), after the file has changed.
+  static void forget(int songId) {
+    _thumbnails.remove(songId);
+    _largeArtwork.remove(songId);
+    _colorCache.remove(songId);
+    _formats.remove(songId);
+    _lyrics.remove(songId);
+    _gains.remove(songId);
   }
 
   /// Opens the folder holding [path] in the Files app; false if none could.

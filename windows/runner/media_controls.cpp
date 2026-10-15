@@ -10,6 +10,8 @@
 #include <chrono>
 #include <string>
 
+#include "utils.h"
+
 using flutter::EncodableMap;
 using flutter::EncodableValue;
 using winrt::Windows::Foundation::AsyncStatus;
@@ -31,25 +33,79 @@ namespace {
 // milliseconds, comes as the message's LPARAM.
 constexpr WPARAM kSeek = 0x100;
 
+// The taskbar preview's buttons, as their WM_COMMAND ids.
+enum ThumbButton : UINT {
+  kThumbPrevious = 0x4201,
+  kThumbPlayPause,
+  kThumbNext,
+};
+
+// Glyphs of Segoe MDL2 Assets (also in Windows 11), indexed as icons_.
+constexpr wchar_t kGlyphs[4] = {0xE892, 0xE768, 0xE769, 0xE893};
+enum Icon { kIconPrevious, kIconPlay, kIconPause, kIconNext };
+
+// A white icon of [glyph], [size] pixels square, drawn from Windows' own
+// icon font so it matches the rest of the taskbar.
+HICON GlyphIcon(wchar_t glyph, int size) {
+  BITMAPINFO info{};
+  info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  info.bmiHeader.biWidth = size;
+  info.bmiHeader.biHeight = -size;  // Top-down.
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HDC screen = GetDC(nullptr);
+  HDC dc = CreateCompatibleDC(screen);
+  ReleaseDC(nullptr, screen);
+  HBITMAP color = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (!color) {
+    DeleteDC(dc);
+    return nullptr;
+  }
+  HGDIOBJ old_bitmap = SelectObject(dc, color);
+  // Grey levels, not ClearType's coloured edges: they become the alpha.
+  HFONT font = CreateFontW(-size * 3 / 4, 0, 0, 0, FW_NORMAL, FALSE, FALSE,
+                           FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                           CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                           DEFAULT_PITCH, L"Segoe MDL2 Assets");
+  HGDIOBJ old_font = SelectObject(dc, font);
+  SetBkMode(dc, TRANSPARENT);
+  SetTextColor(dc, RGB(255, 255, 255));
+  RECT area{0, 0, size, size};
+  DrawTextW(dc, &glyph, 1, &area, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+  GdiFlush();
+  auto* pixels = static_cast<BYTE*>(bits);
+  for (int i = 0; i < size * size; i++) {
+    BYTE level = pixels[i * 4 + 2];
+    pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = 255;
+    pixels[i * 4 + 3] = level;
+  }
+  SelectObject(dc, old_font);
+  DeleteObject(font);
+  SelectObject(dc, old_bitmap);
+  DeleteDC(dc);
+
+  HBITMAP mask = CreateBitmap(size, size, 1, 1, nullptr);
+  ICONINFO icon_info{};
+  icon_info.fIcon = TRUE;
+  icon_info.hbmMask = mask;
+  icon_info.hbmColor = color;
+  HICON icon = CreateIconIndirect(&icon_info);
+  DeleteObject(mask);
+  DeleteObject(color);
+  return icon;
+}
+
 const EncodableValue* Find(const EncodableMap& map, const char* key) {
   auto it = map.find(EncodableValue(key));
   return it == map.end() ? nullptr : &it->second;
 }
 
-std::wstring Wide(const std::string& utf8) {
-  if (utf8.empty()) return std::wstring();
-  int length = MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
-                                   static_cast<int>(utf8.size()), nullptr, 0);
-  std::wstring wide(length, L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
-                      wide.data(), length);
-  return wide;
-}
-
 std::wstring WideString(const EncodableMap& map, const char* key) {
   const EncodableValue* value = Find(map, key);
   const auto* text = value ? std::get_if<std::string>(value) : nullptr;
-  return text ? Wide(*text) : std::wstring();
+  return text ? Utf16FromUtf8(*text) : std::wstring();
 }
 
 bool Bool(const EncodableMap& map, const char* key) {
@@ -69,7 +125,16 @@ TimeSpan Milliseconds(int64_t ms) {
 
 }  // namespace
 
-MediaControls::MediaControls(flutter::BinaryMessenger* messenger, HWND window) {
+MediaControls::MediaControls(flutter::BinaryMessenger* messenger, HWND window)
+    : window_(window) {
+  taskbar_button_created_ = RegisterWindowMessageW(L"TaskbarButtonCreated");
+  // Without this an app run as administrator never hears it.
+  ChangeWindowMessageFilterEx(window, taskbar_button_created_, MSGFLT_ALLOW,
+                              nullptr);
+  UINT dpi = GetDpiForWindow(window);
+  int size = GetSystemMetricsForDpi(SM_CXSMICON, dpi);
+  for (int i = 0; i < 4; i++) icons_[i] = GlyphIcon(kGlyphs[i], size);
+
   channel_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
       messenger, "blimp/media_controls",
       &flutter::StandardMethodCodec::GetInstance());
@@ -114,6 +179,10 @@ MediaControls::MediaControls(flutter::BinaryMessenger* messenger, HWND window) {
 }
 
 MediaControls::~MediaControls() {
+  if (taskbar_) taskbar_->Release();
+  for (HICON icon : icons_) {
+    if (icon) DestroyIcon(icon);
+  }
   if (!controls_) return;
   controls_.ButtonPressed(button_token_);
   controls_.PlaybackPositionChangeRequested(seek_token_);
@@ -156,10 +225,84 @@ void MediaControls::HandlePress(WPARAM wparam, LPARAM lparam) {
                          std::make_unique<EncodableValue>(std::string(name)));
 }
 
+void MediaControls::HandleTaskbarButtonCreated() {
+  if (!taskbar_) {
+    if (FAILED(CoCreateInstance(CLSID_TaskbarList, nullptr,
+                                CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&taskbar_)))) {
+      taskbar_ = nullptr;
+      return;
+    }
+    if (FAILED(taskbar_->HrInit())) {
+      taskbar_->Release();
+      taskbar_ = nullptr;
+      return;
+    }
+  }
+  // Explorer restarted, or the button was made again: the buttons are new.
+  thumb_buttons_added_ = false;
+  UpdateThumbButtons();
+}
+
+bool MediaControls::HandleCommand(WPARAM wparam) {
+  if (HIWORD(wparam) != THBN_CLICKED) return false;
+  SystemMediaTransportControlsButton button;
+  switch (LOWORD(wparam)) {
+    case kThumbPrevious:
+      button = SystemMediaTransportControlsButton::Previous;
+      break;
+    case kThumbPlayPause:
+      button = playing_ ? SystemMediaTransportControlsButton::Pause
+                        : SystemMediaTransportControlsButton::Play;
+      break;
+    case kThumbNext:
+      button = SystemMediaTransportControlsButton::Next;
+      break;
+    default:
+      return false;
+  }
+  HandlePress(static_cast<WPARAM>(button), 0);
+  return true;
+}
+
+void MediaControls::UpdateThumbButtons() {
+  if (!taskbar_) return;
+  THUMBBUTTON buttons[3] = {};
+  const UINT ids[3] = {kThumbPrevious, kThumbPlayPause, kThumbNext};
+  const Icon icons[3] = {kIconPrevious, playing_ ? kIconPause : kIconPlay,
+                         kIconNext};
+  const wchar_t* tips[3] = {L"Previous", playing_ ? L"Pause" : L"Play",
+                            L"Next"};
+  for (int i = 0; i < 3; i++) {
+    buttons[i].dwMask = THB_ICON | THB_TOOLTIP | THB_FLAGS;
+    buttons[i].iId = ids[i];
+    buttons[i].hIcon = icons_[icons[i]];
+    wcscpy_s(buttons[i].szTip, tips[i]);
+    buttons[i].dwFlags = !has_song_                  ? THBF_HIDDEN
+                         : (i == 2 && !can_next_)   ? THBF_DISABLED
+                                                    : THBF_ENABLED;
+  }
+  if (thumb_buttons_added_) {
+    taskbar_->ThumbBarUpdateButtons(window_, 3, buttons);
+  } else if (SUCCEEDED(taskbar_->ThumbBarAddButtons(window_, 3, buttons))) {
+    thumb_buttons_added_ = true;
+  }
+}
+
 void MediaControls::HandleCall(
     const flutter::MethodCall<EncodableValue>& call,
     std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
   const auto* args = std::get_if<EncodableMap>(call.arguments());
+  // The taskbar preview's buttons follow along, media controls or not.
+  if (call.method_name() == "update" && args) {
+    has_song_ = true;
+    playing_ = Bool(*args, "playing");
+    can_next_ = Bool(*args, "canNext");
+    UpdateThumbButtons();
+  } else if (call.method_name() == "clear") {
+    has_song_ = false;
+    UpdateThumbButtons();
+  }
   if (!controls_) {
     result->Success();
     return;
@@ -179,12 +322,17 @@ void MediaControls::HandleCall(
       music.Title(WideString(*args, "title"));
       music.Artist(WideString(*args, "artist"));
       music.AlbumTitle(WideString(*args, "album"));
-      // Cleared until the new song's cover has loaded, if it has one.
-      updater.Thumbnail(nullptr);
-      updater.Update();
-      generation_->fetch_add(1);
+      // Only a new cover is touched: setting the same one again makes the
+      // flyout redraw it, which flickers. Cleared until the new one loads.
       std::wstring art = WideString(*args, "art");
-      if (!art.empty()) SetThumbnail(art);
+      bool new_art = art != thumbnail_;
+      if (new_art) {
+        thumbnail_ = art;
+        updater.Thumbnail(nullptr);
+        generation_->fetch_add(1);
+      }
+      updater.Update();
+      if (new_art && !art.empty()) SetThumbnail(art);
     } else if (call.method_name() == "timeline" && args) {
       int64_t duration = Long(*args, "durationMs");
       SystemMediaTransportControlsTimelineProperties timeline;
@@ -195,6 +343,8 @@ void MediaControls::HandleCall(
       timeline.EndTime(Milliseconds(duration));
       controls_.UpdateTimelineProperties(timeline);
     } else if (call.method_name() == "clear") {
+      thumbnail_.clear();
+      generation_->fetch_add(1);
       controls_.DisplayUpdater().ClearAll();
       controls_.DisplayUpdater().Update();
       controls_.IsEnabled(false);

@@ -54,5 +54,7 @@ msix_config:
   logo_path: store_listing/icon_512.png
   languages: en-us
   store: true
+  # Offered in "Open with" for songs.
+  file_extension: .mp3, .flac, .m4a, .aac, .ogg, .oga, .opus, .wav, .wma, .aiff, .aif
   output_path: build/msix
   output_name: Blimp

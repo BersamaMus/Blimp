@@ -11,6 +11,7 @@ import '../services/lyrics.dart';
 import '../services/media_library.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
+import '../widgets/add_to_playlist.dart';
 import '../widgets/lyrics_view.dart';
 import '../widgets/marquee_text.dart';
 import '../widgets/shelf.dart';
@@ -1312,6 +1313,17 @@ class _UpNextList extends StatelessWidget {
 
     return ReorderableListView.builder(
       buildDefaultDragHandles: false,
+      header: Align(
+        alignment: Alignment.centerRight,
+        child: Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: TextButton.icon(
+            onPressed: split == 0 ? null : () => _saveAsPlaylist(context, music),
+            icon: const Icon(Icons.playlist_add_rounded),
+            label: const Text('Save as playlist'),
+          ),
+        ),
+      ),
       itemCount: split,
       onReorderItem: music.moveInQueue,
       itemBuilder: (context, i) => tile(i),
@@ -1328,6 +1340,18 @@ class _UpNextList extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Saves the user's queue (not autoplay's songs) as a new playlist.
+Future<void> _saveAsPlaylist(BuildContext context, MusicController music) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final songs = music.queuedSongs;
+  final name = await askPlaylistName(context, title: 'Save queue as playlist', action: 'Save');
+  if (name == null) return;
+  final playlist = music.createPlaylist(name, songs);
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text('Saved ${playlist.name} • ${describeLength(playlist.songIds.length, Duration.zero)}')));
 }
 
 /// Autoplay's switch, between the queue and the songs autoplay added.
