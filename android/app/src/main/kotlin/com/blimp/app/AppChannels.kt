@@ -44,6 +44,10 @@ import kotlin.math.sqrt
  */
 object AppChannels {
     private var widgets: MethodChannel? = null
+    private var opener: MethodChannel? = null
+
+    /** Files opened with Blimp (from a file manager, say) not yet taken by the app. */
+    private val opened = mutableListOf<Map<String, Any?>>()
 
     /**
      * What a widget asked for when it opened the app (see
@@ -138,8 +142,27 @@ object AppChannels {
             }
         }
 
+        // Files opened with Blimp: kept until the app takes them, as it may
+        // still be starting; it's told when more come.
+        opener = MethodChannel(messenger, "blimp/open").apply {
+            setMethodCallHandler { call, result ->
+                if (call.method == "takeOpened") {
+                    result.success(opened.toList())
+                    opened.clear()
+                } else {
+                    result.notImplemented()
+                }
+            }
+        }
+
         EventChannel(messenger, "blimp/visualizer")
             .setStreamHandler(VisualizerStreamHandler(app.getSystemService(AudioManager::class.java)))
+    }
+
+    /** Hands a file opened with Blimp to the app, which plays it. */
+    fun sendOpened(file: Map<String, Any?>) {
+        opened.add(file)
+        opener?.invokeMethod("opened", null)
     }
 
     /**

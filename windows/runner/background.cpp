@@ -50,6 +50,9 @@ Background::~Background() {
 }
 
 bool Background::HandleClose() {
+  // Back to the full window first, so that's the size kept for next time
+  // and what comes back from the tray.
+  SetCompact(false);
   if (quitting_) return false;
   switch (close_action_) {
     case CloseAction::kQuit:
@@ -112,6 +115,10 @@ void Background::HandleCall(
     const auto* notice = std::get_if<bool>(call.arguments());
     Hide(notice && *notice);
     result->Success();
+  } else if (method == "setCompact") {
+    const auto* compact = std::get_if<bool>(call.arguments());
+    result->Success();
+    PostMessage(window_, kCompactMessage, compact && *compact ? 1 : 0, 0);
   } else if (method == "quit") {
     result->Success();
     Quit();
@@ -135,6 +142,37 @@ void Background::Hide(bool notice) {
              L"quit.");
     Shell_NotifyIconW(NIM_MODIFY, &balloon);
   }
+}
+
+void Background::SetCompact(bool compact) {
+  if (compact == compact_) return;
+  if (compact) {
+    normal_placement_.length = sizeof(WINDOWPLACEMENT);
+    GetWindowPlacement(window_, &normal_placement_);
+    if (IsZoomed(window_)) ShowWindow(window_, SW_RESTORE);
+    // Before resizing, so the window's smallest size lets it.
+    compact_ = true;
+    UINT dpi = GetDpiForWindow(window_);
+    RECT frame{0, 0, MulDiv(kCompactWidth, dpi, 96),
+               MulDiv(kCompactHeight, dpi, 96)};
+    AdjustWindowRectExForDpi(
+        &frame, static_cast<DWORD>(GetWindowLongPtr(window_, GWL_STYLE)),
+        FALSE, static_cast<DWORD>(GetWindowLongPtr(window_, GWL_EXSTYLE)),
+        dpi);
+    // Where it is, just smaller, and above other windows.
+    RECT now;
+    GetWindowRect(window_, &now);
+    SetWindowPos(window_, HWND_TOPMOST, now.left, now.top,
+                 frame.right - frame.left, frame.bottom - frame.top, 0);
+  } else {
+    compact_ = false;
+    SetWindowPos(window_, HWND_NOTOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPlacement(window_, &normal_placement_);
+  }
+  // Now the window is its new size.
+  channel_->InvokeMethod("compactChanged",
+                         std::make_unique<EncodableValue>(compact));
 }
 
 void Background::Quit() {

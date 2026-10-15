@@ -151,6 +151,10 @@ class PlaylistArt extends StatelessWidget {
       : icon = Icons.history,
         colors = const [Color(0xFF6366F1), Color(0xFF2DD4BF)];
 
+  const PlaylistArt.smart({super.key, this.size, this.radius = AppRadius.art})
+      : icon = Icons.auto_awesome,
+        colors = const [Color(0xFF8B5CF6), Color(0xFFEC4899)];
+
   final IconData icon;
   final List<Color> colors;
   final double? size;

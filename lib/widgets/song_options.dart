@@ -6,14 +6,17 @@ import '../screens/app_shell.dart';
 import '../screens/artist_screen.dart';
 import '../screens/collection_screen.dart';
 import '../screens/folder_screen.dart';
+import '../screens/tag_editor_screen.dart';
 import '../services/desktop_library.dart';
 import '../services/media_library.dart';
 import '../services/music_controller.dart';
+import '../services/tag_editor.dart';
 import '../theme.dart';
 import 'add_to_playlist.dart';
 import 'shelf.dart';
 import 'song_artwork.dart';
 import 'song_details.dart';
+import 'star_rating.dart';
 
 /// The bottom sheet opened from a song's ⋮ button or by long-pressing it.
 ///
@@ -82,6 +85,18 @@ Future<void> showSongOptions(BuildContext context, Song song, {bool inPlayer = f
                         color: favourite ? AppColors.favourite : null,
                         onPressed: () => music.toggleFavourite(song),
                       ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 16, 4),
+                  child: Row(
+                    children: [
+                      StarRating(song: song),
+                      const Spacer(),
+                      // One star keeps it out of what Blimp picks for you.
+                      if (music.isUnwanted(song))
+                        Text('Not suggested', style: Theme.of(sheetContext).textTheme.bodySmall),
                     ],
                   ),
                 ),
@@ -172,6 +187,16 @@ Future<void> showSongOptions(BuildContext context, Song song, {bool inPlayer = f
                     onTap: () {
                       done(sheetContext);
                       MediaLibrary.shareSong(song);
+                    },
+                  ),
+                // Only the library's own songs, in a format that can be edited.
+                if (music.songWithId(song.id) != null && TagEditor.canEdit(song))
+                  _Option(
+                    icon: Icons.edit_outlined,
+                    label: 'Edit tags',
+                    onTap: () {
+                      done(sheetContext);
+                      openPage(TagEditorScreen(song: song));
                     },
                   ),
                 _Option(

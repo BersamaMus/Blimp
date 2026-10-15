@@ -5,8 +5,9 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "window_placement.h"
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project,
+                             std::vector<std::string> opened)
+    : project_(project), opened_(std::move(opened)) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -33,6 +34,11 @@ bool FlutterWindow::OnCreate() {
   background_ = std::make_unique<Background>(
       flutter_controller_->engine()->messenger(), GetHandle());
   output_watch_ = std::make_unique<OutputWatch>(GetHandle());
+  open_files_ = std::make_unique<OpenFiles>(
+      flutter_controller_->engine()->messenger(), GetHandle(),
+      std::move(opened_));
+  recycle_bin_ = std::make_unique<RecycleBin>(
+      flutter_controller_->engine()->messenger(), GetHandle());
   share_ = std::make_unique<Share>(
       flutter_controller_->engine()->messenger(), GetHandle());
   visualizer_ = std::make_unique<Visualizer>(
@@ -59,8 +65,10 @@ bool FlutterWindow::OnCreate() {
 
 void FlutterWindow::OnDestroy() {
   media_controls_ = nullptr;
+  open_files_ = nullptr;
   output_watch_ = nullptr;
   share_ = nullptr;
+  recycle_bin_ = nullptr;
   visualizer_ = nullptr;
   waveform_ = nullptr;
   background_ = nullptr;
@@ -83,6 +91,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     if (result) {
       return *result;
     }
+  }
+
+  if (media_controls_ &&
+      message == media_controls_->taskbar_button_created_message()) {
+    media_controls_->HandleTaskbarButtonCreated();
+    return 0;
   }
 
   if (background_ && message == background_->taskbar_created_message()) {
@@ -116,6 +130,19 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case Background::kTrayMessage:
       if (background_) background_->HandleTray(wparam, lparam);
       return 0;
+    case WM_COMMAND:
+      if (media_controls_ && media_controls_->HandleCommand(wparam)) return 0;
+      break;
+    case WM_COPYDATA:
+      if (open_files_ &&
+          open_files_->HandleCopyData(
+              reinterpret_cast<const COPYDATASTRUCT*>(lparam))) {
+        return TRUE;
+      }
+      break;
+    case Background::kCompactMessage:
+      if (background_) background_->SetCompact(wparam != 0);
+      return 0;
     case Background::kShowMessage:
       if (background_) background_->Restore();
       return 0;
@@ -130,11 +157,15 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       }
       return 0;
     case WM_GETMINMAXINFO: {
-      // Any smaller and the phone layout no longer fits.
+      // Any smaller and the phone layout no longer fits. The compact player
+      // is meant to be small.
       auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
       UINT dpi = GetDpiForWindow(hwnd);
-      limits->ptMinTrackSize.x = MulDiv(400, dpi, 96);
-      limits->ptMinTrackSize.y = MulDiv(640, dpi, 96);
+      bool compact = background_ && background_->compact();
+      limits->ptMinTrackSize.x =
+          MulDiv(compact ? Background::kCompactMinWidth : 400, dpi, 96);
+      limits->ptMinTrackSize.y =
+          MulDiv(compact ? Background::kCompactMinHeight : 640, dpi, 96);
       return 0;
     }
   }

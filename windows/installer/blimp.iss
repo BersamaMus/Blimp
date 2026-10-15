@@ -34,6 +34,8 @@ CloseApplications=yes
 ; Blimp's single-instance mutex (windows/runner/main.cpp), so setup also finds
 ; it running in the background, in the tray.
 AppMutex=Blimp.SingleInstance
+; Explorer picks up Blimp in "Open with" straight away.
+ChangesAssociations=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -42,6 +44,39 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Everything the release build needs beside blimp.exe: Flutter, the plugins'
 ; DLLs and the app's data folder.
 Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Registry]
+; "Open with Blimp" for songs. Blimp is offered, not made the default: Windows
+; leaves that to the user (Settings > Apps > Default apps).
+Root: HKA; Subkey: "Software\Classes\Blimp.AudioFile"; ValueType: string; ValueName: ""; ValueData: "Audio file"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Blimp.AudioFile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\blimp.exe,0"
+Root: HKA; Subkey: "Software\Classes\Blimp.AudioFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\blimp.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "Blimp"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\blimp.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.mp3\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".mp3"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.flac\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".flac"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.m4a\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".m4a"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.aac\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".aac"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.alac\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".alac"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.ogg\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".ogg"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.oga\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".oga"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.opus\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".opus"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.wav\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".wav"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.wma\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".wma"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.aiff\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".aiff"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\.aif\OpenWithProgids"; ValueType: string; ValueName: "Blimp.AudioFile"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Applications\blimp.exe\SupportedTypes"; ValueType: string; ValueName: ".aif"; ValueData: ""
 
 [Icons]
 Name: "{autoprograms}\Blimp"; Filename: "{app}\blimp.exe"

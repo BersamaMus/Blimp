@@ -28,6 +28,10 @@ abstract final class DesktopLibrary {
   /// ReplayGain, release type), by song id; see [_read].
   static Map<int, Map<String, Object?>> _details = {};
 
+  /// [_details] of songs opened from outside the music folder, kept across
+  /// scans so their covers and details still work.
+  static final Map<int, Map<String, Object?>> _opened = {};
+
   /// The user's Music folder, e.g. C:/Users/Ana/Music.
   static String get defaultFolder =>
       '${Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? ''}/Music'.replaceAll(r'\', '/');
@@ -53,8 +57,57 @@ abstract final class DesktopLibrary {
     final folder = await musicFolder();
     final cache = '${await _cachePath()}/desktop_library.json';
     final maps = await Isolate.run(() => _scan(folder, cache));
-    _details = {for (final map in maps) map['id'] as int: map};
+    _details = {..._opened, for (final map in maps) map['id'] as int: map};
     return maps.map(Song.fromMap).toList();
+  }
+
+  /// The song id for the file at [path], as a scan gives it.
+  static int idOf(String path) => stableId(path.replaceAll(r'\', '/').toLowerCase());
+
+  /// The songs at [paths], opened with Blimp or dragged onto it: audio files,
+  /// and those in folders among them, sorted by path. Songs [known] has
+  /// (the library's) are taken from it; others are read from their files.
+  static Future<List<Song>> songsAt(List<String> paths, {required Song? Function(int id) known}) async {
+    final files = await Isolate.run(() => _audioFilesAt(paths));
+    final unread = [for (final file in files) if (known(idOf(file.path)) == null) file];
+    final read = await Isolate.run(() => [for (final f in unread) _read(f.path, f.modified, f.size)]);
+    for (final map in read) {
+      final id = map['id'] as int;
+      _opened[id] = map;
+      _details[id] = map;
+    }
+    final readById = {for (final map in read) map['id'] as int: Song.fromMap(map)};
+    return [for (final file in files) ?(known(idOf(file.path)) ?? readById[idOf(file.path)])];
+  }
+
+  static List<({String path, int modified, int size})> _audioFilesAt(List<String> paths) {
+    final found = <({String path, int modified, int size})>[];
+    void add(FileSystemEntity entry) {
+      final path = entry.path.replaceAll(r'\', '/');
+      if (entry is Directory) {
+        final List<FileSystemEntity> entries;
+        try {
+          entries = entry.listSync(followLinks: false)..sort((a, b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+        } on FileSystemException {
+          return;
+        }
+        for (final child in entries) {
+          if (!child.path.replaceAll(r'\', '/').split('/').last.startsWith('.')) add(child);
+        }
+      } else if (entry is File && _extensions.contains(_extension(path))) {
+        try {
+          final stat = entry.statSync();
+          found.add((path: path, modified: stat.modified.millisecondsSinceEpoch, size: stat.size));
+        } on FileSystemException {
+          return;
+        }
+      }
+    }
+
+    for (final path in paths) {
+      add(FileSystemEntity.isDirectorySync(path) ? Directory(path) : File(path));
+    }
+    return found;
   }
 
   // ---------------------------------------------------------------------

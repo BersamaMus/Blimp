@@ -5,10 +5,14 @@
 #include <flutter/flutter_view_controller.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "background.h"
 #include "media_controls.h"
+#include "open_files.h"
 #include "output_watch.h"
+#include "recycle_bin.h"
 #include "share.h"
 #include "visualizer.h"
 #include "waveform.h"
@@ -18,7 +22,9 @@
 class FlutterWindow : public Win32Window {
  public:
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
-  explicit FlutterWindow(const flutter::DartProject& project);
+  // [opened] are the files Blimp was started with, to play.
+  FlutterWindow(const flutter::DartProject& project,
+                std::vector<std::string> opened);
   virtual ~FlutterWindow();
 
  protected:
@@ -35,11 +41,18 @@ class FlutterWindow : public Win32Window {
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 
+  // Files opened with Blimp, or dragged onto it.
+  std::unique_ptr<OpenFiles> open_files_;
+  std::vector<std::string> opened_;
+
   // The media keys and Windows' media flyout.
   std::unique_ptr<MediaControls> media_controls_;
 
   // Pauses when the headphones playing are unplugged.
   std::unique_ptr<OutputWatch> output_watch_;
+
+  // Throws songs' files away, to the Recycle Bin.
+  std::unique_ptr<RecycleBin> recycle_bin_;
 
   // Windows' share panel, for a song's file.
   std::unique_ptr<Share> share_;

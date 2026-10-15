@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../screens/app_shell.dart';
 import '../screens/collection_screen.dart';
-import '../screens/settings_screen.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
 
-enum _MenuAction { settings, history, rescan }
+enum _MenuAction { history, rescan }
 
 /// The ⋮ button in the top bars, with app-wide actions.
 class AppMenuButton extends StatelessWidget {
@@ -19,12 +18,10 @@ class AppMenuButton extends StatelessWidget {
       icon: const Icon(Icons.more_vert),
       position: PopupMenuPosition.under,
       onSelected: (action) => switch (action) {
-        _MenuAction.settings => openPage(const SettingsScreen()),
         _MenuAction.history => openPage(CollectionScreen.history()),
         _MenuAction.rescan => rescanLibrary(context),
       },
       itemBuilder: (_) => const [
-        PopupMenuItem(value: _MenuAction.settings, child: _Item(Icons.settings_outlined, 'Settings')),
         PopupMenuItem(value: _MenuAction.history, child: _Item(Icons.history, 'History')),
         PopupMenuItem(value: _MenuAction.rescan, child: _Item(Icons.refresh, 'Rescan device for music')),
       ],

@@ -13,6 +13,8 @@
 #include <thread>
 #include <vector>
 
+#include "utils.h"
+
 using flutter::EncodableMap;
 using flutter::EncodableValue;
 using Microsoft::WRL::ComPtr;
@@ -32,16 +34,6 @@ constexpr double kBurstSeconds = 0.125;
 // Reads that bring no audio (a gap, a format change) before a slice is
 // given up on.
 constexpr int kMaxEmptyReads = 64;
-
-std::wstring Wide(const std::string& utf8) {
-  if (utf8.empty()) return std::wstring();
-  int length = MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
-                                   static_cast<int>(utf8.size()), nullptr, 0);
-  std::wstring wide(length, L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
-                      wide.data(), length);
-  return wide;
-}
 
 // How loud the file is across |points| equal slices of it, each the root
 // mean square of its samples (0..1); nothing if it can't be decoded.
@@ -162,7 +154,7 @@ Waveform::Waveform(flutter::BinaryMessenger* messenger, HWND window) {
       result->Error("bad_args", "Needs a path and a number of points.");
       return;
     }
-    std::wstring file = Wide(*path);
+    std::wstring file = Utf16FromUtf8(*path);
     std::replace(file.begin(), file.end(), L'/', L'\\');
     auto* job = new Job{std::move(result), std::nullopt};
     std::thread([window, job, file, points]() {
