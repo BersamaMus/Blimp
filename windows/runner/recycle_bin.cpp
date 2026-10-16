@@ -10,10 +10,6 @@
 using flutter::EncodableList;
 using flutter::EncodableValue;
 
-namespace {
-
-}  // namespace
-
 RecycleBin::RecycleBin(flutter::BinaryMessenger* messenger, HWND window)
     : window_(window) {
   channel_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
