@@ -36,11 +36,16 @@ Windows may warn that the installer is from an unknown publisher. Click
 - **Live visualizer:** Bars, Mirror, Wave, Radial and Pulse styles.
 - **Synced lyrics:** read from your files' tags or from `.lrc` files beside them.
   Tap a line to jump to it.
-- **Sound:** hi-res badges, volume normalisation, crossfade,
+- **Sound:** gapless playback, hi-res badges, volume normalisation, crossfade,
   an equalizer, skip silence, and playback speed.
 - **Library:** browse by songs, albums, artists, playlists, genres or folders.
   Albums are sorted into Albums, EPs, Singles and Compilations. Search ignores
   accents. Playlists import and export as M3U.
+- **Playlists:** your own, smart playlists that fill themselves by rules
+  (genre, plays, rating, when last played and more), and the queue saved as
+  a playlist.
+- **Tidy up:** edit songs' tags (MP3 and FLAC), rate songs with stars, and
+  find duplicate songs to remove the extra copies.
 - **Listening stats:** top songs, artists and genres, and listening time.
 - **Backups:** save your playlists, favourites, history, stats and settings to
   one file, and restore them on another device.
@@ -49,7 +54,9 @@ Windows may warn that the installer is from an unknown publisher. Click
 ### On Windows
 
 - Scans a music folder (Music by default; you can change it in Settings).
-- Media keys and Windows' media flyout.
+- Open songs with Blimp from Explorer, or drag them onto its window.
+- A compact player that stays on top of other windows.
+- Media keys, Windows' media flyout, and play buttons on the taskbar preview.
 - Keeps playing in the system tray when you close the window.
 - Pauses when headphones are unplugged.
 - Keyboard shortcuts: Space plays and pauses, Ctrl+Left and Ctrl+Right skip,
@@ -58,6 +65,7 @@ Windows may warn that the installer is from an unknown publisher. Click
 ### On Android
 
 - Android Auto, home screen widgets, lock screen controls, and a sleep timer.
+- Open songs with Blimp from a file manager or another app.
 
 ## License
 
