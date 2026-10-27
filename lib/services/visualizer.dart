@@ -12,7 +12,9 @@ enum VisualizerStyle {
   mirror('Mirror', Icons.align_vertical_center_rounded),
   wave('Wave', Icons.waves_rounded),
   radial('Radial', Icons.blur_circular_rounded),
-  pulse('Pulse', Icons.radio_button_checked_rounded);
+  pulse('Pulse', Icons.radio_button_checked_rounded),
+  particles('Particles', Icons.bubble_chart_rounded),
+  starfield('Starfield', Icons.auto_awesome_rounded);
 
   const VisualizerStyle(this.label, this.icon);
 
@@ -35,6 +37,57 @@ enum VisualizerStyle {
       'Chill' || 'Folk & Acoustic' => (const Color(0xFF2DD4BF), const Color(0xFF818CF8)),
       _ => (AppColors.accent, const Color(0xFF6366F1)),
     };
+
+/// The visualizer's two colours picked from a cover's pixels ([rgba], four
+/// bytes each): its most striking colour, then the most striking one of a
+/// clearly different hue (or a neighbour of the first, for a cover in one
+/// colour). Both are brightened to stand out on black. Null for a cover with
+/// no colour to speak of (black and white, say).
+(Color, Color)? artworkColors(Uint8List rgba) {
+  const bins = 12;
+  final weight = Float64List(bins);
+  final red = Float64List(bins), green = Float64List(bins), blue = Float64List(bins);
+  for (var i = 0; i + 3 < rgba.length; i += 4) {
+    final hsv = HSVColor.fromColor(Color.fromARGB(255, rgba[i], rgba[i + 1], rgba[i + 2]));
+    // Greys and near-black say nothing about the cover's colour.
+    if (hsv.saturation < 0.25 || hsv.value < 0.2) continue;
+    final w = hsv.saturation * hsv.value;
+    final bin = (hsv.hue / 360 * bins).floor() % bins;
+    weight[bin] += w;
+    red[bin] += rgba[i] * w;
+    green[bin] += rgba[i + 1] * w;
+    blue[bin] += rgba[i + 2] * w;
+  }
+
+  var first = 0;
+  for (var b = 1; b < bins; b++) {
+    if (weight[b] > weight[first]) first = b;
+  }
+  final total = weight.fold(0.0, (a, b) => a + b);
+  // A few stray coloured pixels don't make a colourful cover.
+  if (total < rgba.length / 4 * 0.04) return null;
+
+  int distance(int a, int b) => min((a - b).abs(), bins - (a - b).abs());
+  int? second;
+  for (var b = 0; b < bins; b++) {
+    if (distance(b, first) < 2 || weight[b] < total * 0.08) continue;
+    if (second == null || weight[b] > weight[second]) second = b;
+  }
+
+  Color vivid(Color color) {
+    final hsv = HSVColor.fromColor(color);
+    return hsv.withSaturation(max(hsv.saturation, 0.55)).withValue(max(hsv.value, 0.9)).toColor();
+  }
+
+  Color binColor(int b) =>
+      Color.fromARGB(255, (red[b] / weight[b]).round(), (green[b] / weight[b]).round(), (blue[b] / weight[b]).round());
+
+  final low = vivid(binColor(first));
+  if (second != null) return (low, vivid(binColor(second)));
+  // One colour: the other end is the same hue moved round a little, lighter.
+  final hsv = HSVColor.fromColor(low);
+  return (low, hsv.withHue((hsv.hue + 40) % 360).withSaturation(hsv.saturation * 0.7).toColor());
+}
 
 /// One capture of what the player is outputting.
 class AudioFrame {

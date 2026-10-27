@@ -154,6 +154,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
       songs: music.mostPlayed,
       onTap: () => openPage(CollectionScreen.charts()),
     ),
+    for (final year in music.chartYears)
+      _Item(
+        title: 'Top songs of $year',
+        subtitle: 'Auto playlist • Chart',
+        art: const PlaylistArt.yearChart(),
+        songs: music.topSongsOf(year),
+        onTap: () => openPage(CollectionScreen.yearChart(year)),
+      ),
     _Item(
       title: 'Recently added',
       subtitle: 'Auto playlist • Newest on your device',

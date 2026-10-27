@@ -9,6 +9,7 @@ import '../widgets/shelf.dart';
 import '../widgets/song_artwork.dart';
 import 'app_shell.dart';
 import 'artist_screen.dart';
+import 'badges_screen.dart';
 import 'now_playing_screen.dart';
 
 /// Listening time, plays and favourites for a day, week, month or all time.
@@ -77,6 +78,7 @@ class _StatsScreenState extends State<StatsScreen> {
             ),
           ),
           SliverToBoxAdapter(child: _Headline(stats: stats)),
+          if (music.streak.longest > 0) SliverToBoxAdapter(child: _Milestones(music: music)),
           if (stats.isEmpty)
             const SliverToBoxAdapter(
               child: Padding(
@@ -226,6 +228,93 @@ class _Headline extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The listening streak and badges earned, each opening the Badges page.
+class _Milestones extends StatelessWidget {
+  const _Milestones({required this.music});
+
+  final MusicController music;
+
+  @override
+  Widget build(BuildContext context) {
+    final streak = music.streak;
+    final badges = music.badges;
+    final earned = badges.where((b) => b.earned).length;
+    final next = badges.where((b) => !b.earned).firstOrNull;
+    void open() => openPage(const BadgesScreen());
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+      child: Row(
+        children: [
+          _MilestoneTile(
+            icon: Icons.local_fire_department_rounded,
+            iconColor: streak.current > 0 ? const Color(0xFFF97316) : AppColors.textTertiary,
+            title: streak.current == 1 ? '1-day streak' : '${streak.current}-day streak',
+            subtitle: streak.current > 0 && !streak.playedToday ? 'Play today to keep it' : 'Longest: ${streak.longest}',
+            onTap: open,
+          ),
+          const SizedBox(width: 10),
+          _MilestoneTile(
+            icon: Icons.military_tech_rounded,
+            iconColor: earned > 0 ? AppColors.accent : AppColors.textTertiary,
+            title: '$earned of ${badges.length} badges',
+            subtitle: next == null ? 'Every one earned' : 'Next: ${next.title}',
+            onTap: open,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MilestoneTile extends StatelessWidget {
+  const _MilestoneTile({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Expanded(
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Icon(icon, color: iconColor, size: 28),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: textTheme.titleSmall),
+                      Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

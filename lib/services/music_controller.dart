@@ -10,19 +10,24 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'artist_links.dart';
 import 'backup.dart';
 import 'catalog.dart';
+import 'decades.dart';
 import 'desktop_library.dart';
 import 'folders.dart';
 import 'home_widgets.dart';
 import 'listening_log.dart';
 import 'listening_stats.dart';
 import 'media_library.dart';
+import 'milestones.dart';
 import 'playlists.dart';
 import 'queue_order.dart';
 import 'resume_points.dart';
 import 'search_text.dart';
 import 'smart_playlists.dart';
+import 'song_dna.dart';
+import 'time_machine.dart';
 import 'visualizer.dart';
 
 enum LibraryStatus { loading, permissionDenied, ready }
@@ -190,6 +195,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   static const _searchHistoryPausedKey = 'search_history_paused';
   static const _visualizerStyleKey = 'visualizer_style';
   static const _visualizerEnabledKey = 'visualizer_enabled';
+  static const _visualizerArtworkColorsKey = 'visualizer_artwork_colors';
   static const _autoplayKey = 'autoplay';
   static const _queueKey = 'queue_song_ids';
   static const _queueIndexKey = 'queue_index';
@@ -495,11 +501,28 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     rootFolder = tree?.root;
     _foldersByPath = tree?.byPath ?? const {};
 
+    decades = decadesOf(all, now: DateTime.now());
+    _artistGraph = null;
+    _forgetListenFacts();
+
     _shuffleQuickPicks();
   }
 
   /// How artist credits split into artists, given who's in the library.
   ArtistCredits _credits = ArtistCredits(const []);
+
+  /// The decades the library's songs come from, for Decade radio.
+  List<Decade> decades = const [];
+
+  /// Who has worked with whom, for Six degrees; worked out when first asked.
+  ArtistGraph get artistGraph => _artistGraph ??= ArtistGraph(songs, albums, credits: _credits);
+  ArtistGraph? _artistGraph;
+
+  /// Plays [decade]'s songs in a random order; autoplay carries on after.
+  Future<void> playDecade(Decade decade) => playSongs([
+        for (final song in decade.songs)
+          if (!isUnwanted(song)) song,
+      ], shuffle: true);
 
   /// The artists credited in [credit] ("A/B", "A feat. B") that are in the
   /// library, in the order credited.
@@ -587,6 +610,10 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   /// Whether the Visualizer tab draws anything; off saves battery.
   bool visualizerEnabled = true;
 
+  /// Whether the visualizer takes its colours from the song's artwork
+  /// rather than its genre.
+  bool visualizerArtworkColors = false;
+
   /// Whether similar songs keep playing once the queue runs out.
   bool autoplay = true;
 
@@ -671,6 +698,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     equalizerEnabled = prefs.getBool(_equalizerEnabledKey) ?? false;
     visualizerStyle = VisualizerStyle.values.asNameMap()[prefs.getString(_visualizerStyleKey)] ?? VisualizerStyle.bars;
     visualizerEnabled = prefs.getBool(_visualizerEnabledKey) ?? true;
+    visualizerArtworkColors = prefs.getBool(_visualizerArtworkColorsKey) ?? false;
     autoplay = prefs.getBool(_autoplayKey) ?? true;
     waveformSeekBar = prefs.getBool(_waveformSeekBarKey) ?? false;
     browseFolders = prefs.getBool(_browseFoldersKey) ?? false;
@@ -751,6 +779,12 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _notify({MusicAspect.settings});
   }
 
+  void setVisualizerArtworkColors(bool enabled) {
+    visualizerArtworkColors = enabled;
+    _prefs?.setBool(_visualizerArtworkColorsKey, enabled);
+    _notify({MusicAspect.settings});
+  }
+
   void setEqualizerEnabled(bool enabled) {
     equalizerEnabled = enabled;
     equalizer?.setEnabled(enabled);
@@ -786,11 +820,10 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   void clearHistory() {
     _log?.clear();
     _listenWatch.reset();
-    _statsCache.clear();
+    _forgetListenFacts();
     _changed.add(MusicAspect.stats);
     _historyIds.clear();
     _playCounts.clear();
-    _lastPlayed = null;
     _saveIds(_historyKey, _historyIds);
     _invalidateHistory();
     _prefs?.remove(_playCountsKey);
@@ -946,6 +979,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _searchHistoryPausedKey,
     _visualizerStyleKey,
     _visualizerEnabledKey,
+    _visualizerArtworkColorsKey,
     _autoplayKey,
     _hiddenFoldersKey,
     _minSongSecondsKey,
@@ -1001,8 +1035,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     final save = song != null && log != null && ms >= 1000 && !historyPaused;
     if (save) {
       log.append(ListenEvent(songId: song.id, endedAt: DateTime.now(), listenedMs: ms, continued: _listenContinues));
-      _statsCache.clear();
-      _lastPlayed = null;
+      _forgetListenFacts();
       _notify({MusicAspect.stats});
     }
     // The next piece continues this listen only if part of it is saved; an
@@ -1042,6 +1075,95 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     );
     if (pending == null) _statsCache[(range, offset)] = stats;
     return stats;
+  }
+
+  /// Every listen, with the one in progress, oldest first.
+  List<ListenEvent> get _listens => [...?_log?.events, ?_pendingListen(DateTime.now())];
+
+  // Worked out from the listening history when first asked, and again after
+  // it changes (see [_forgetListenFacts]).
+  Streak? _streak;
+  List<ListeningBadge>? _badges;
+  DateTime? _streakDay;
+  (DateTime, List<TimeTrip>)? _timeTrips;
+
+  /// Works out [fact] from every listen with the one in progress. The answer
+  /// is kept only while nothing is playing, as the song playing grows by the
+  /// second and may soon count as a play, and only for today, as a streak
+  /// ends at midnight without anything being played.
+  T _withPending<T extends Object>(T? cached, void Function(T) keep, T Function(List<ListenEvent>, DateTime) fact) {
+    final now = DateTime.now();
+    final day = DateTime(now.year, now.month, now.day);
+    final pending = _pendingListen(now);
+    if (day != _streakDay) {
+      _streakDay = day;
+      _streak = null;
+      _badges = null;
+    } else if (cached != null && pending == null) {
+      return cached;
+    }
+    final answer = fact([...?_log?.events, ?pending], now);
+    if (pending == null) keep(answer);
+    return answer;
+  }
+
+  /// Days in a row with music played.
+  Streak get streak => _withPending(_streak, (s) => _streak = s, listeningStreak);
+
+  /// Every badge, earned or not.
+  List<ListeningBadge> get badges => _withPending(
+        _badges,
+        (b) => _badges = b,
+        (events, _) => computeBadges(
+          events: events,
+          songsById: _songsById,
+          albums: albums,
+          librarySize: songs.length,
+          creditsOf: _credits.split,
+        ),
+      );
+
+  /// Weeks in the past worth going back to, for Home's Time machine. They
+  /// only change with the date, as they're at least a month back.
+  List<TimeTrip> get timeTrips {
+    final today = DateTime.now();
+    final day = DateTime(today.year, today.month, today.day);
+    if (_timeTrips case (final cachedDay, final trips) when cachedDay == day) return trips;
+    final trips = findTimeTrips(events: _log?.events ?? const [], songsById: _songsById, now: day);
+    _timeTrips = (day, trips);
+    return trips;
+  }
+
+  /// The years with something played, newest first, each with a Top songs
+  /// playlist.
+  List<int> get chartYears => _yearCharts.keys.toList();
+
+  /// [year]'s most played songs, most first.
+  List<Song> topSongsOf(int year) => _yearCharts[year]?.songs ?? const [];
+
+  /// How many times [song] was played in [year], if it's in that year's chart.
+  int playsIn(int year, Song song) => _yearCharts[year]?.plays[song.id] ?? 0;
+
+  // Only saved listens count, as these are kept until the next one is saved:
+  // the song playing joins its year's chart when it ends.
+  Map<int, ({List<Song> songs, Map<int, int> plays})> get _yearCharts => _yearChartsCache ??= {
+        for (final MapEntry(key: year, value: chart)
+            in topSongsByYear(_log?.events ?? const [], _songsById).entries)
+          year: (songs: [for (final s in chart) s.song], plays: {for (final s in chart) s.song.id: s.plays}),
+      };
+  Map<int, ({List<Song> songs, Map<int, int> plays})>? _yearChartsCache;
+
+  /// What the listening history says about [song].
+  SongDna songDnaOf(Song song) => songDna(song, _listens, DateTime.now());
+
+  /// After the listening history changes.
+  void _forgetListenFacts() {
+    _statsCache.clear();
+    _lastPlayed = null;
+    _streak = null;
+    _badges = null;
+    _timeTrips = null;
+    _yearChartsCache = null;
   }
 
   /// The not-yet-saved part of the current listen, if any.

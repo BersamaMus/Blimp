@@ -315,3 +315,31 @@ List<String> splitArtists(String artist) {
 }
 
 final _artistSeparator = RegExp(r'\s*[/;]\s*|\s+(?:feat\.?|ft\.|featuring)\s+', caseSensitive: false);
+
+/// How many songs a year's chart holds.
+const yearChartLength = 50;
+
+/// Each year's most played songs with their plays that year, most first (ties
+/// by time listened), for its Top songs playlist. The years come newest first,
+/// and only ones with a song still in the library played in them. Done in one
+/// go through the history, as it can be years long.
+Map<int, List<SongStat>> topSongsByYear(Iterable<ListenEvent> events, Map<int, Song> songsById) {
+  final years = <int, Map<int, SongStat>>{};
+  for (final e in events) {
+    final song = songsById[e.songId];
+    if (song == null) continue;
+    years.putIfAbsent(e.endedAt.year, () => {}).putIfAbsent(song.id, () => SongStat(song))
+      ..plays += e.countsAsPlay ? 1 : 0
+      ..listenedMs += e.listenedMs;
+  }
+  final charts = <int, List<SongStat>>{};
+  for (final year in years.keys.toList()..sort((a, b) => b.compareTo(a))) {
+    final ranked = years[year]!.values.where((s) => s.plays > 0).toList()
+      ..sort((a, b) {
+        final c = b.plays.compareTo(a.plays);
+        return c != 0 ? c : b.listenedMs.compareTo(a.listenedMs);
+      });
+    if (ranked.isNotEmpty) charts[year] = ranked.take(yearChartLength).toList();
+  }
+  return charts;
+}

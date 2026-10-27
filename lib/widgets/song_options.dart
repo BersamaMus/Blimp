@@ -16,6 +16,7 @@ import 'add_to_playlist.dart';
 import 'shelf.dart';
 import 'song_artwork.dart';
 import 'song_details.dart';
+import 'song_dna_sheet.dart';
 import 'star_rating.dart';
 
 /// The bottom sheet opened from a song's ⋮ button or by long-pressing it.
@@ -199,6 +200,14 @@ Future<void> showSongOptions(BuildContext context, Song song, {bool inPlayer = f
                       openPage(TagEditorScreen(song: song));
                     },
                   ),
+                _Option(
+                  icon: Icons.biotech_outlined,
+                  label: 'Song DNA',
+                  onTap: () {
+                    done(sheetContext);
+                    showSongDna(context, song);
+                  },
+                ),
                 _Option(
                   icon: Icons.info_outline,
                   label: 'Details',

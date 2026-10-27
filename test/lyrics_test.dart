@@ -42,4 +42,35 @@ void main() {
     expect(parseLyrics('  \n\n'), isNull);
     expect(parseLyrics('[ar:Someone]\n[ti:Something]'), isNull);
   });
+
+  test('word timings are kept for karaoke, with the offset applied', () {
+    final lyrics = parseLyrics(
+      '[offset:+500]\n'
+      '[00:10.00]<00:10.00>Hello <00:10.80>bright <00:11.40>world<00:12.00>\n'
+      '[00:13.00]No word times here',
+    )!;
+    final words = lyrics.lines.first.words!;
+    expect(lyrics.lines.first.text, 'Hello bright world');
+    expect(words.map((w) => w.text).join(), 'Hello bright world');
+    expect(words.map((w) => w.time), [
+      const Duration(milliseconds: 9500),
+      const Duration(milliseconds: 10300),
+      const Duration(milliseconds: 10900),
+    ]);
+    expect(lyrics.lines.last.words, isNull);
+    expect(lyrics.endOf(0), const Duration(milliseconds: 12500));
+    expect(lyrics.endOf(1, songEnd: const Duration(minutes: 3)), const Duration(minutes: 3));
+  });
+
+  test('words with an end tag each still join up into the line', () {
+    final line = parseLyrics('[00:01.00]<00:01.00>Hello<00:01.50> <00:01.60>world<00:02.00>\n[00:03.00]Next')!.lines.first;
+    expect(line.text, 'Hello world');
+    expect(line.words!.map((w) => w.text), ['Hello ', 'world']);
+    expect(line.words!.map((w) => w.time), [const Duration(seconds: 1), const Duration(milliseconds: 1600)]);
+  });
+
+  test('a line sung at several times keeps no word timings', () {
+    final lyrics = parseLyrics('[00:01.00][00:20.00]<00:01.00>La <00:01.50>la\n[00:10.00]Verse')!;
+    expect(lyrics.lines.first.words, isNull);
+  });
 }
