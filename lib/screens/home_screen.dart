@@ -2,8 +2,10 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../services/decades.dart';
 import '../services/media_library.dart';
 import '../services/music_controller.dart';
+import '../services/time_machine.dart';
 import '../theme.dart';
 import '../widgets/app_menu.dart';
 import '../widgets/shelf.dart';
@@ -29,6 +31,8 @@ class HomeScreen extends StatelessWidget {
     final picks = music.quickPicks;
     final history = music.recentlyPlayed.take(20).toList();
     final recentlyAdded = music.recentlyAdded.take(20).toList();
+    final trips = music.timeTrips;
+    final decades = music.decades;
 
     return Scaffold(
       // Pulling down shuffles Quick picks afresh, as the Refresh button does.
@@ -100,6 +104,13 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
             SliverToBoxAdapter(child: history.isEmpty ? const _EmptyHistory() : _SongRow(songs: history)),
+            if (trips.isNotEmpty) SliverToBoxAdapter(child: _TimeMachine(trips: trips)),
+            if (decades.length > 1) ...[
+              const SliverToBoxAdapter(
+                child: ShelfHeader(title: 'Decade radio', subtitle: 'Shuffles your songs from one decade'),
+              ),
+              SliverToBoxAdapter(child: _DecadeRow(decades: decades)),
+            ],
             if (recentlyAdded.isNotEmpty) ...[
               SliverToBoxAdapter(
                 child: ShelfHeader(
@@ -167,6 +178,114 @@ class _SongRow extends StatelessWidget {
         onLongPress: () => showSongOptions(context, songs[i]),
         onPlay: () => music.playSongs(songs, index: i),
       ),
+    );
+  }
+}
+
+/// What was played around this week some time ago; the button beside the
+/// heading goes to another time, when there's more than one.
+class _TimeMachine extends StatefulWidget {
+  const _TimeMachine({required this.trips});
+
+  final List<TimeTrip> trips;
+
+  @override
+  State<_TimeMachine> createState() => _TimeMachineState();
+}
+
+class _TimeMachineState extends State<_TimeMachine> {
+  int _shown = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final trips = widget.trips;
+    final trip = trips[_shown % trips.length];
+    final music = MusicScope.read(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ShelfHeader(
+          title: 'Time machine',
+          subtitle: trip.label,
+          extraActions: [
+            if (trips.length > 1)
+              IconButton(
+                tooltip: 'Another time',
+                icon: const Icon(Icons.history_toggle_off_rounded),
+                color: AppColors.textSecondary,
+                onPressed: () => setState(() => _shown++),
+              ),
+          ],
+          actionLabel: 'Play',
+          actionIcon: Icons.play_arrow_rounded,
+          onAction: () => music.playSongs([for (final s in trip.songs) if (!music.isUnwanted(s)) s]),
+        ),
+        _SongRow(songs: trip.songs),
+      ],
+    );
+  }
+}
+
+/// A card for each decade in the library; tapping one shuffles its songs.
+class _DecadeRow extends StatelessWidget {
+  const _DecadeRow({required this.decades});
+
+  final List<Decade> decades;
+
+  static const _width = 132.0;
+
+  /// Each decade's own pair of colours, going round.
+  static const _colors = [
+    (Color(0xFFF97316), Color(0xFFDB2777)),
+    (Color(0xFF8B5CF6), Color(0xFF22D3EE)),
+    (Color(0xFF14B8A6), Color(0xFF84CC16)),
+    (Color(0xFFFACC15), Color(0xFFEF4444)),
+    (Color(0xFF3B82F6), Color(0xFFA855F7)),
+    (Color(0xFFEC4899), Color(0xFFF59E0B)),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final music = MusicScope.read(context);
+    final textTheme = Theme.of(context).textTheme;
+    return Shelf(
+      height: _width + 76,
+      itemCount: decades.length,
+      itemBuilder: (context, i) {
+        final decade = decades[i];
+        final (from, to) = _colors[(decade.start ~/ 10) % _colors.length];
+        return MediaCard(
+          width: _width,
+          art: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.card),
+              gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [from, to]),
+            ),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: FittedBox(
+                  child: Text(
+                    decade.shortLabel,
+                    style: textTheme.displaySmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      shadows: const [Shadow(blurRadius: 12, color: Color(0x55000000))],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          title: decade.label,
+          subtitle: [
+            '${decade.songs.length} songs',
+            ...decade.topGenres.take(1),
+          ].join(' • '),
+          onTap: () => music.playDecade(decade),
+          onPlay: () => music.playDecade(decade),
+        );
+      },
     );
   }
 }

@@ -33,9 +33,11 @@ Windows may warn that the installer is from an unknown publisher. Click
 
 ## Features
 
-- **Live visualizer:** Bars, Mirror, Wave, Radial and Pulse styles.
+- **Live visualizer:** Bars, Mirror, Wave, Radial, Pulse, Particles and
+  Starfield styles, coloured by the song's genre or its artwork.
 - **Synced lyrics:** read from your files' tags or from `.lrc` files beside them.
-  Tap a line to jump to it.
+  Tap a line to jump to it, or open Karaoke mode to sing along, word by word
+  when the lyrics time each word.
 - **Sound:** gapless playback, hi-res badges, volume normalisation, crossfade,
   an equalizer, skip silence, and playback speed.
 - **Library:** browse by songs, albums, artists, playlists, genres or folders.
@@ -47,6 +49,15 @@ Windows may warn that the installer is from an unknown publisher. Click
 - **Tidy up:** edit songs' tags (MP3 and FLAC), rate songs with stars, and
   find duplicate songs to remove the extra copies.
 - **Listening stats:** top songs, artists and genres, and listening time.
+- **Top songs of the year:** a ranked playlist of your most played songs for
+  each year you've listened, on the Playlists tab.
+- **Streaks and badges:** days in a row with music, and badges to earn.
+- **Time machine:** what you were playing this week a year (or a few months)
+  ago, on Home.
+- **Decade radio:** shuffle your songs from the '80s, '90s or any decade.
+- **Six degrees:** see how two artists link through songs they share.
+- **Song DNA:** a card of everything about one song: plays, skips, when you
+  play it, its all-time rank and how it sounds.
 - **Backups:** save your playlists, favourites, history, stats and settings to
   one file, and restore them on another device.
 - **Private:** Blimp never goes online and collects nothing.

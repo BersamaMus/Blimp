@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../screens/karaoke_screen.dart';
 import '../services/lyrics.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
@@ -83,7 +84,7 @@ class _SyncedLyricsState extends State<_SyncedLyrics> {
   Widget build(BuildContext context) {
     final music = MusicScope.read(context);
     final style = Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 22, height: 1.3, fontWeight: FontWeight.w700);
-    return NotificationListener<UserScrollNotification>(
+    final lyricsList = NotificationListener<UserScrollNotification>(
       onNotification: (notification) {
         if (notification.direction != ScrollDirection.idle) {
           _holdUntil = DateTime.now().add(const Duration(seconds: 4));
@@ -119,6 +120,20 @@ class _SyncedLyricsState extends State<_SyncedLyrics> {
           ],
         ),
       ),
+    );
+    return Stack(
+      children: [
+        Positioned.fill(child: lyricsList),
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: FilledButton.tonalIcon(
+            onPressed: () => openKaraoke(context),
+            icon: const Icon(Icons.mic_external_on_rounded),
+            label: const Text('Karaoke'),
+          ),
+        ),
+      ],
     );
   }
 }

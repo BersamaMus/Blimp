@@ -147,6 +147,10 @@ class PlaylistArt extends StatelessWidget {
       : icon = Icons.trending_up,
         colors = const [Color(0xFF2DD4BF), Color(0xFF2563EB)];
 
+  const PlaylistArt.yearChart({super.key, this.size, this.radius = AppRadius.art})
+      : icon = Icons.emoji_events_rounded,
+        colors = const [Color(0xFFFACC15), Color(0xFFEA580C)];
+
   const PlaylistArt.history({super.key, this.size, this.radius = AppRadius.art})
       : icon = Icons.history,
         colors = const [Color(0xFF6366F1), Color(0xFF2DD4BF)];

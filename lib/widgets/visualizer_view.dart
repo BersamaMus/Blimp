@@ -7,6 +7,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../services/desktop_library.dart';
+import '../services/media_library.dart';
 import '../services/music_controller.dart';
 import '../services/visualizer.dart';
 import '../theme.dart';
@@ -225,8 +226,7 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
       ..update(dt, _bandTargets, _fineTargets, _waveTargets)
       ..time = elapsed.inMicroseconds / 1e6;
 
-    final genre = _music.currentSong?.genre;
-    final (low, high) = visualizerColors(genre);
+    final (low, high) = _colors();
     _signal.low = Color.lerp(_signal.low, low, min(1, 3 * dt))!;
     _signal.high = Color.lerp(_signal.high, high, min(1, 3 * dt))!;
 
@@ -241,11 +241,37 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
 
   bool _wasIdle = false;
 
+  /// The song whose artwork colours are loaded or loading, and the colours
+  /// (null for artwork without any).
+  int? _paletteSong;
+  bool _paletteLoaded = false;
+  (Color, Color)? _palette;
+
+  /// The colours to ease towards: the artwork's when chosen and it has some,
+  /// otherwise the genre's. While the artwork's load, the colours stay put.
+  (Color, Color) _colors() {
+    final song = _music.currentSong;
+    final genreColors = visualizerColors(song?.genre);
+    if (!_music.visualizerArtworkColors || song == null) return genreColors;
+    if (_paletteSong != song.id) {
+      _paletteSong = song.id;
+      _paletteLoaded = false;
+      MediaLibrary.getArtworkColors(song.id).then((colors) {
+        if (_paletteSong != song.id) return;
+        _palette = colors;
+        _paletteLoaded = true;
+      });
+    }
+    if (!_paletteLoaded) return (_signal.low, _signal.high);
+    return _palette ?? genreColors;
+  }
+
   @override
   Widget build(BuildContext context) {
     final music = MusicScope.of(context, const {MusicAspect.playback, MusicAspect.settings});
     final genre = music.currentSong?.genre;
     final style = music.visualizerStyle;
+    _signal.style = style;
     final permission = _permission;
     final enabled = music.visualizerEnabled;
 
@@ -316,6 +342,8 @@ class _VisualizerViewState extends State<VisualizerView> with SingleTickerProvid
             genre: genre,
             selected: style,
             onChanged: music.setVisualizerStyle,
+            artworkColors: music.visualizerArtworkColors,
+            onArtworkColors: music.setVisualizerArtworkColors,
           ),
         ],
       ],
@@ -368,6 +396,17 @@ class _Signal extends ChangeNotifier {
   Color low = AppColors.accent;
   Color high = const Color(0xFF6366F1);
 
+  /// The style showing, so only its own moving parts are moved.
+  VisualizerStyle style = VisualizerStyle.bars;
+
+  /// The Starfield style's stars, and how fast they're flying (depth a
+  /// second): a slow drift, faster with the music, a jump to warp on drops.
+  late final stars = List.generate(_starCount, (_) => _Star(_random, z: _random.nextDouble()));
+  double warp = _baseWarp;
+
+  /// The Particles style's motes, each circling the centre.
+  late final motes = List.generate(_moteCount, (_) => _Mote(_random));
+
   final _lastCapture = Float64List(_bandCount);
   double _fluxAverage = 0;
   double _sinceBeat = 1;
@@ -375,6 +414,9 @@ class _Signal extends ChangeNotifier {
   static const _trailLength = 4;
   static const _baseSpin = 0.12;
   static const _baseOrbit = 0.5;
+  static const _baseWarp = 0.08;
+  static const _starCount = 240;
+  static const _moteCount = 180;
 
   /// Kept light everywhere (no glow, few sparks, no orbit tails), so it runs
   /// at the screen's full frame rate on any phone or PC, which matters more
@@ -496,6 +538,21 @@ class _Signal extends ChangeNotifier {
       ring.age += dt;
     }
     rings.removeWhere((ring) => ring.age >= _Ring.lifetime);
+
+    if (style == VisualizerStyle.starfield) {
+      final warpTarget = _baseWarp + 0.7 * average(0, 12) + 0.9 * beat + 2.2 * impact;
+      // Speeds up at once on a hit and slows down gently.
+      warp += (warpTarget - warp) * _ease(warpTarget > warp ? 12 : 1.5, dt);
+      for (final star in stars) {
+        star.z -= warp * dt;
+        if (star.z <= 0.02 || star.x.abs() > star.z * 1.6 || star.y.abs() > star.z * 1.6) star.respawn(_random);
+      }
+    } else if (style == VisualizerStyle.particles) {
+      final speed = 0.06 + 0.5 * average(6, 26) + 1.4 * beat;
+      for (final mote in motes) {
+        mote.angle += mote.direction * speed * dt / sqrt(mote.radius);
+      }
+    }
   }
 
   /// Back to silence, for when the visualizer is shown again.
@@ -513,6 +570,7 @@ class _Signal extends ChangeNotifier {
     _fluxAverage = 0;
     particles.clear();
     rings.clear();
+    warp = _baseWarp;
   }
 
   void tick() => notifyListeners();
@@ -547,6 +605,53 @@ class _Particle {
   /// Where between the low and high colour it sits.
   final double hue;
   double age = 0;
+}
+
+/// A star in the Starfield style: where it is across the view (-1..1 at the
+/// far end), and how far away, 1 being the furthest. It flies towards the
+/// viewer and starts again at the far end once past.
+class _Star {
+  _Star(Random random, {required this.z}) : hue = random.nextDouble() {
+    _place(random);
+  }
+
+  late double x, y;
+  double z;
+
+  /// Where between the low and high colour it sits, and which band lights it.
+  final double hue;
+
+  void respawn(Random random) {
+    z = 1;
+    _place(random);
+  }
+
+  void _place(Random random) {
+    x = random.nextDouble() * 2 - 1;
+    y = random.nextDouble() * 2 - 1;
+  }
+}
+
+/// A mote in the Particles style, circling the centre at [radius] (0..1 of
+/// the view). Inner motes follow the bass, outer ones the treble.
+class _Mote {
+  _Mote(Random random)
+      // Spread evenly over the area, not bunched in the middle.
+      : radius = 0.12 + 0.88 * sqrt(random.nextDouble()),
+        angle = random.nextDouble() * 2 * pi,
+        phase = random.nextDouble() * 2 * pi,
+        direction = random.nextBool() ? 1 : -0.6;
+
+  final double radius;
+  double angle;
+
+  /// Offsets its gentle wobble from its neighbours'.
+  final double phase;
+
+  /// Which way it goes round, and how fast compared with the others.
+  final double direction;
+
+  int get band => ((radius - 0.12) / 0.88 * (_bandCount - 1)).round();
 }
 
 /// A shockwave ring sent out on a beat.
@@ -650,14 +755,22 @@ class _WholePcNote extends StatelessWidget {
   }
 }
 
-/// "Style" dropdown at the bottom of the tab, above the song's genre (which
-/// sets the colours).
+/// "Style" dropdown at the bottom of the tab, above what sets the colours:
+/// the song's genre, or its artwork, picked with the button beside it.
 class _StylePicker extends StatelessWidget {
-  const _StylePicker({required this.genre, required this.selected, required this.onChanged});
+  const _StylePicker({
+    required this.genre,
+    required this.selected,
+    required this.onChanged,
+    required this.artworkColors,
+    required this.onArtworkColors,
+  });
 
   final String? genre;
   final VisualizerStyle selected;
   final ValueChanged<VisualizerStyle> onChanged;
+  final bool artworkColors;
+  final ValueChanged<bool> onArtworkColors;
 
   @override
   Widget build(BuildContext context) {
@@ -674,10 +787,23 @@ class _StylePicker extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Style', style: textTheme.titleSmall),
-                  Text(genre ?? 'No genre', maxLines: 1, overflow: TextOverflow.ellipsis, style: textTheme.bodySmall),
+                  Text(
+                    artworkColors ? 'Colours from the artwork' : genre ?? 'No genre',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
+            IconButton(
+              tooltip: artworkColors ? 'Colour by genre' : 'Colour by artwork',
+              isSelected: artworkColors,
+              icon: const Icon(Icons.palette_outlined),
+              selectedIcon: const Icon(Icons.palette_rounded, color: AppColors.accent),
+              onPressed: () => onArtworkColors(!artworkColors),
+            ),
+            const SizedBox(width: 4),
             DropdownButtonHideUnderline(
               child: Container(
                 padding: const EdgeInsets.only(left: 14, right: 6),
@@ -721,11 +847,17 @@ class _VisualizerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
+    // Stars and motes fly right to the edges; kept off what's around.
+    if (style == VisualizerStyle.starfield || style == VisualizerStyle.particles) canvas.clipRect(Offset.zero & size);
     _paintBackdrop(canvas, size);
 
     // Big beats punch the whole drawing towards the viewer for a moment;
-    // not the bar styles, which stay put and follow the levels alone.
-    final zoom = style == VisualizerStyle.bars || style == VisualizerStyle.mirror ? 1.0 : signal.zoom;
+    // not the bar styles, which stay put and follow the levels alone, nor
+    // Starfield, which leaps to warp instead.
+    final zoom = switch (style) {
+      VisualizerStyle.bars || VisualizerStyle.mirror || VisualizerStyle.starfield => 1.0,
+      _ => signal.zoom,
+    };
     final center = size.center(Offset.zero);
     canvas.save();
     canvas.translate(center.dx, center.dy);
@@ -748,7 +880,69 @@ class _VisualizerPainter extends CustomPainter {
         _paintRadial(canvas, size);
       case VisualizerStyle.pulse:
         _paintPulse(canvas, size);
+      case VisualizerStyle.particles:
+        _paintMotes(canvas, size);
+      case VisualizerStyle.starfield:
+        _paintStarfield(canvas, size);
     }
+  }
+
+  /// Stars flying out of the middle towards the viewer, lit by the
+  /// spectrum: a drift in quiet parts, streaks at warp speed on a drop.
+  void _paintStarfield(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final scale = max(size.width, size.height) * 0.35;
+    // How far back each streak reaches: a dot at a drift, a long line at warp.
+    final trail = 0.012 + signal.warp * 0.05;
+    final paint = Paint()..strokeCap = StrokeCap.round;
+    for (final star in signal.stars) {
+      final near = 1 - star.z;
+      final level = signal.bands[(star.hue * (_bandCount - 1)).round()];
+      final head = center + Offset(star.x, star.y) / star.z * scale;
+      final tail = center + Offset(star.x, star.y) / (star.z + trail) * scale;
+      paint
+        ..strokeWidth = 0.6 + near * near * 3.2 * (0.7 + 0.6 * level)
+        ..color = Color.lerp(_colorAt(star.hue), Colors.white, 0.25 + 0.5 * level)!
+            .withValues(alpha: (near * 1.4).clamp(0.0, 1.0) * (0.55 + 0.45 * level));
+      canvas.drawLine(tail, head, paint);
+    }
+  }
+
+  /// Motes circling the centre in a slow swirl, the inner ones lit by the
+  /// bass and the outer by the treble, swelling out on beats.
+  void _paintMotes(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final extent = _roundSize(size) / 2 * 0.95;
+    final bass = signal.average(0, 6);
+    final swell = 1 + 0.1 * signal.beat + 0.18 * signal.impact;
+    _paintRings(canvas, center, extent * 0.9);
+
+    // A faint glow at the core, breathing with the bass.
+    final core = extent * (0.2 + 0.25 * bass) * swell;
+    canvas.drawCircle(
+      center,
+      core,
+      Paint()
+        ..shader = RadialGradient(colors: [signal.high.withValues(alpha: 0.35 + 0.3 * bass), signal.high.withValues(alpha: 0)])
+            .createShader(Rect.fromCircle(center: center, radius: core)),
+    );
+
+    final paint = Paint();
+    final glow = Paint();
+    final time = signal.time;
+    for (final mote in signal.motes) {
+      final level = signal.bands[mote.band];
+      final radius = mote.radius * extent * (1 + 0.3 * level) * swell + 4 * sin(time * 1.7 + mote.phase);
+      final position = center + Offset(cos(mote.angle), sin(mote.angle)) * radius;
+      final color = _colorAt(mote.radius);
+      if (level > 0.45) {
+        glow.color = color.withValues(alpha: 0.18 * level);
+        canvas.drawCircle(position, 4 + 9 * level, glow);
+      }
+      paint.color = Color.lerp(color, Colors.white, 0.3 * level)!.withValues(alpha: 0.3 + 0.7 * level);
+      canvas.drawCircle(position, 1.2 + 3.8 * level, paint);
+    }
+    _paintParticles(canvas, center, extent * 0.9);
   }
 
   Color _colorAt(double x, [double alpha = 1]) => Color.lerp(signal.low, signal.high, x)!.withValues(alpha: alpha);

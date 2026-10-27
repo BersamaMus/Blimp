@@ -9,6 +9,7 @@ import 'desktop_library.dart';
 import 'genres.dart';
 import 'lyrics.dart';
 import 'search_text.dart';
+import 'visualizer.dart';
 
 class Song {
   Song({
@@ -260,6 +261,7 @@ class MediaLibrary {
   static final _thumbnails = _LruCache<int, Uint8List?>(400);
   static final _largeArtwork = _LruCache<int, Uint8List?>(6);
   static final _colorCache = _LruCache<int, Color?>(400);
+  static final _paletteCache = _LruCache<int, Future<(Color, Color)?>>(20);
 
   // Few loads at once, newest first: when flinging through a list, the rows
   // on screen now matter more than ones that already scrolled past.
@@ -464,6 +466,7 @@ class MediaLibrary {
     _thumbnails.remove(songId);
     _largeArtwork.remove(songId);
     _colorCache.remove(songId);
+    _paletteCache.remove(songId);
     _formats.remove(songId);
     _lyrics.remove(songId);
     _gains.remove(songId);
@@ -573,5 +576,27 @@ class MediaLibrary {
     }
     return _colorCache[songId] =
         Color.fromARGB(255, (r / total).round(), (g / total).round(), (b / total).round());
+  }
+
+  /// Two colours from the song's artwork for the visualizer (see
+  /// [artworkColors]); null without artwork, or for one with no colour.
+  static Future<(Color, Color)?> getArtworkColors(int songId) {
+    if (_paletteCache[songId] case final colors?) return colors;
+    return _paletteCache[songId] = () async {
+      try {
+        final bytes = await getArtwork(songId);
+        if (bytes == null) return null;
+        final codec = await ui.instantiateImageCodec(bytes, targetWidth: 24, targetHeight: 24);
+        final image = (await codec.getNextFrame()).image;
+        codec.dispose();
+        final data = await image.toByteData();
+        image.dispose();
+        return data == null ? null : artworkColors(data.buffer.asUint8List());
+      } on Exception {
+        // Not kept, so the next song change tries again.
+        _paletteCache.remove(songId);
+        return null;
+      }
+    }();
   }
 }

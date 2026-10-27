@@ -22,6 +22,7 @@ class CollectionScreen extends StatefulWidget {
       album = album,
       isAlbum = true,
       ranked = false,
+      playsOf = null,
       emptyText = '',
       actions = const [];
 
@@ -32,6 +33,7 @@ class CollectionScreen extends StatefulWidget {
     required this.songsOf,
     this.kindLine = 'Auto playlist',
     this.ranked = false,
+    this.playsOf,
     this.emptyText = 'No songs yet.',
     this.actions = const [],
   }) : artistName = null,
@@ -76,6 +78,20 @@ class CollectionScreen extends StatefulWidget {
         emptyText: 'Play some songs to build your chart.',
       );
 
+  /// The most played songs of one year.
+  CollectionScreen.yearChart(int year, {Key? key})
+    : this.playlist(
+        key: key,
+        title: 'Top songs of $year',
+        kindLine: 'Chart • Ranked by plays in $year',
+        art: const PlaylistArt.yearChart(radius: AppRadius.card),
+        songsOf: (music) => music.topSongsOf(year),
+        ranked: true,
+        // That year's plays, not every play since.
+        playsOf: (music, song) => music.playsIn(year, song),
+        emptyText: 'Nothing played in $year.',
+      );
+
   /// All of an artist's songs, from their page's Show all.
   CollectionScreen.artistSongs(Artist artist, {Key? key})
     : this.playlist(
@@ -103,9 +119,15 @@ class CollectionScreen extends StatefulWidget {
   /// More buttons for the app bar, after Search.
   final List<Widget> actions;
 
+  /// For a ranked list, the plays shown beside each song; all of them when
+  /// null.
+  final int Function(MusicController music, Song song)? playsOf;
+
   @override
   State<CollectionScreen> createState() => _CollectionScreenState();
 }
+
+int _allPlays(MusicController music, Song song) => music.playCount(song);
 
 class _CollectionScreenState extends State<CollectionScreen> {
   final _scroll = ScrollController();
@@ -275,7 +297,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     subtitle: widget.isAlbum
                         ? songs[i].artistName
                         : widget.ranked
-                        ? '${songs[i].artistName} • ${music.playCount(songs[i])} plays'
+                        ? '${songs[i].artistName} • ${(widget.playsOf ?? _allPlays)(music, songs[i])} plays'
                         : null,
                     onTap: () => music.playSongs(songs, index: i),
                   );

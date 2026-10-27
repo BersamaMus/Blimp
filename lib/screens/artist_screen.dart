@@ -11,6 +11,7 @@ import 'app_shell.dart';
 import '../widgets/cards.dart';
 import 'collection_screen.dart';
 import 'search_screen.dart';
+import 'six_degrees_screen.dart';
 
 /// Opens the page of one of [artists], those credited on a song or album:
 /// straight away if there's one, otherwise after asking which.
@@ -100,6 +101,12 @@ class _ArtistScreenState extends State<ArtistScreen> {
     final mostPlayed = songs.reduce((a, b) => music.playCount(b) > music.playCount(a) ? b : a);
     final albums = artist.albums.where((a) => a.kind == 'Album').toList();
     final singles = artist.albums.where((a) => a.kind != 'Album').toList();
+    final links = music.artistGraph.neighbours(artist.name);
+    // Those they share a song with and who have a page of their own.
+    final workedWith = [
+      for (final link in links)
+        if (link.together) ?music.artistNamed(link.artist),
+    ];
 
     Widget albumShelf(String title, List<Album> list) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,7 +201,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
               ],
             ),
           ),
-          Padding(
+          // Scrolls sideways when the buttons don't fit a narrow phone.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Row(
               children: [
@@ -206,6 +215,14 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 ),
                 const SizedBox(width: 8),
                 PillButton(label: 'Radio', icon: Icons.sensors, onPressed: () => music.startRadio(mostPlayed)),
+                if (links.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  PillButton(
+                    label: 'Six degrees',
+                    icon: Icons.hub_outlined,
+                    onPressed: () => openPage(SixDegreesScreen(from: artist.name)),
+                  ),
+                ],
               ],
             ),
           ),
@@ -221,6 +238,20 @@ class _ArtistScreenState extends State<ArtistScreen> {
           ),
           if (albums.isNotEmpty) albumShelf('Albums', albums),
           if (singles.isNotEmpty) albumShelf('Singles & EPs', singles),
+          if (workedWith.isNotEmpty) ...[
+            const ShelfHeader(title: 'Worked with'),
+            Shelf(
+              height: 120 + 64,
+              itemCount: workedWith.length,
+              itemBuilder: (context, i) => MediaCard(
+                width: 120,
+                circle: true,
+                art: ArtistAvatar(songId: workedWith[i].cover.id, size: null),
+                title: workedWith[i].name,
+                onTap: () => openPage(ArtistScreen(artistName: workedWith[i].name)),
+              ),
+            ),
+          ],
         ],
       ),
     );

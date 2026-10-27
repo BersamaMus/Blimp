@@ -7,6 +7,7 @@ class ShelfHeader extends StatelessWidget {
   const ShelfHeader({
     super.key,
     required this.title,
+    this.subtitle,
     this.actionLabel,
     this.actionIcon,
     this.onAction,
@@ -14,6 +15,9 @@ class ShelfHeader extends StatelessWidget {
   });
 
   final String title;
+
+  /// A smaller line under the title.
+  final String? subtitle;
   final String? actionLabel;
   final IconData? actionIcon;
   final VoidCallback? onAction;
@@ -28,11 +32,18 @@ class ShelfHeader extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              title,
-              style: Theme.of(context).textTheme.titleLarge,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleLarge,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (subtitle case final subtitle?)
+                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+              ],
             ),
           ),
           ...extraActions,
