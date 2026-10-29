@@ -38,6 +38,8 @@ Windows may warn that the installer is from an unknown publisher. Click
 - **Synced lyrics:** read from your files' tags or from `.lrc` files beside them.
   Tap a line to jump to it, or open Karaoke mode to sing along, word by word
   when the lyrics time each word.
+- **Search your lyrics:** search finds songs by the words in them, and plays
+  from the line they're sung on.
 - **Sound:** gapless playback, hi-res badges, volume normalisation, crossfade,
   an equalizer, skip silence, and playback speed.
 - **Library:** browse by songs, albums, artists, playlists, genres or folders.

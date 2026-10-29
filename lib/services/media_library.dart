@@ -402,6 +402,45 @@ class MediaLibrary {
         .catchError((Object _) => null);
   }
 
+  /// The lyrics saved with each of [songs] (in its tags, or a .lrc file
+  /// beside it), as written, by song id; null for songs without any. Songs
+  /// whose files couldn't be opened (a card still being mounted, say) are
+  /// left out, to try again later, and it's null if none could be asked.
+  /// Not kept: for reading the whole library once, to search it.
+  static Future<Map<int, String?>?> readLyrics(List<Song> songs) async {
+    if (isDesktop) return DesktopLibrary.lyricsOf(songs);
+    try {
+      final texts = await _channel.invokeMapMethod<String, String>('getLyricsBatch', {
+        'ids': [for (final s in songs) s.id],
+      });
+      return {
+        for (final MapEntry(:key, :value) in (texts ?? const {}).entries)
+          ?int.tryParse(key): value.isEmpty ? null : value,
+      };
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// A stamp for each of [songs] that changes when its file, or the .lrc
+  /// file beside it, does, by song id, so lyrics are only read again when
+  /// they may have changed. Empty if it can't be worked out.
+  static Future<Map<int, String>> lyricsStamps(List<Song> songs) async {
+    if (isDesktop) return DesktopLibrary.lyricsStamps(songs);
+    try {
+      final stamps = await _channel.invokeMapMethod<String, String>('getLyricsStamps', {
+        'songs': [
+          for (final s in songs) {'id': s.id, 'path': s.path},
+        ],
+      });
+      return {
+        for (final MapEntry(:key, :value) in (stamps ?? const {}).entries) ?int.tryParse(key): value,
+      };
+    } on PlatformException {
+      return const {};
+    }
+  }
+
   /// Sends the song's file to another app, through Android's share sheet or
   /// Windows' share panel (windows/runner/share.cpp).
   static Future<void> shareSong(Song song) async {
