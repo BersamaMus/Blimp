@@ -55,6 +55,7 @@ At about 2,100 lines, this is the biggest file. It's split by
 | Favourites and search history | 1056 | `toggleFavourite`, recent searches |
 | Ratings | 1075 | `setRating`. A one-star rating keeps the song out of Quick picks and autoplay. `mergeSongInto` (used for duplicates) |
 | Smart playlists | 1139 | Saving, deleting and restoring them |
+| Lyrics search | 1319 | Reading every song's lyrics into the index, `searchLyricsFor` |
 | Volume | 1188 | Volume, normalisation (ReplayGain), crossfade, the sleep timer's fade-out. They multiply together in one place |
 | Sleep timer | 1320 | `setSleepTimer`, `setSleepAtEndOfSong` |
 | Playlists | 1406 | Creating, renaming, reordering and deleting user playlists |
@@ -132,6 +133,7 @@ At about 2,100 lines, this is the biggest file. It's split by
 | Embedded and `.lrc` lyrics on Windows | `desktop_library.dart` (mpv's `sub-auto=no` is set in `packages/just_audio_media_kit`) |
 | Display: synced and tappable, or plain | `lib/widgets/lyrics_view.dart` |
 | Karaoke mode: full screen, fills each line as it's sung (word by word with enhanced-LRC `<mm:ss.xx>` word times, otherwise at a steady pace) | `lib/screens/karaoke_screen.dart`; word times parsed into `LyricLine.words` in `lyrics.dart` |
+| Searching lyrics: every song's lyrics read once and kept, matched like other search, played from the line | `lib/services/lyrics_index.dart`, Lyrics search section of `music_controller.dart`, `MediaLibrary.readLyrics` and `lyricsStamps` (`getLyricsBatch` / `getLyricsStamps` in `AppChannels.kt`, `DesktopLibrary.lyricsOf` / `lyricsStamps` on Windows), `_LyricResult` in `search_screen.dart` |
 
 ### Visualizer
 
@@ -267,7 +269,10 @@ Catch `MissingPluginException` on the platform that doesn't have it.
 - Elsewhere: `desktopMusicFolder` (`desktop_library.dart`), `close_action`
   (`desktop_window.dart`)
 
-**Files:** `listening_log.csv` in the app support folder.
+**Files** in the app support folder: `listening_log.csv`, and
+`lyrics_index.json` (see `LyricsIndex`), which can be read again from the
+songs so isn't backed up. It keeps a stamp of each song's file and `.lrc` file
+(size and when they last changed), so a changed one is read again.
 **Windows registry:** window placement.
 **Android widgets:** keep their own copy of the last song, so they can redraw
 without the app.
@@ -310,6 +315,7 @@ device is needed.
 | `milestones_test`, `year_charts_test` | Streaks, badges, Top songs of the year, Time machine |
 | `discovery_test` | Decades, Six degrees, Song DNA, artwork colours |
 | `lyrics_test`, `tag_editor_test`, `audio_format_test`, `desktop_library_test` | File parsing and writing |
+| `lyrics_search_test` | Searching lyrics, the lyrics index |
 | `marquee_text_test`, `desktop_shortcuts_test`, `accessibility_test`, `chart_colors_test` | Widgets and contrast |
 
 Kotlin unit tests are in `android/app/src/test/` (EmbeddedLyrics, HiRes,

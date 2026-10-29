@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/lyrics_index.dart';
 import '../services/media_library.dart';
 import '../services/music_controller.dart';
 import '../services/search_text.dart';
@@ -19,7 +20,7 @@ class SearchScreen extends StatefulWidget {
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
-enum _Filter { songs, albums, artists }
+enum _Filter { songs, albums, artists, lyrics }
 
 class _SearchScreenState extends State<SearchScreen> {
   final _controller = TextEditingController();
@@ -76,7 +77,7 @@ class _SearchScreenState extends State<SearchScreen> {
           onSubmitted: (_) => _commit(),
           style: const TextStyle(fontSize: 18),
           decoration: const InputDecoration(
-            hintText: 'Search songs, albums, artists',
+            hintText: 'Search songs, albums, artists, lyrics',
             hintStyle: TextStyle(color: AppColors.textTertiary),
             border: InputBorder.none,
           ),
@@ -93,7 +94,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _recentSearches(MusicController music) {
     final searches = music.recentSearches;
     if (searches.isEmpty) {
-      return const MessageView(icon: Icons.search, text: 'Search your library for songs, albums and artists.');
+      return const MessageView(icon: Icons.search, text: 'Search your library for songs, albums and artists, or for words in their lyrics.');
     }
     return ListView(
       children: [
@@ -116,9 +117,19 @@ class _SearchScreenState extends State<SearchScreen> {
     final songs = _ranked(music.songs, (s) => s.searchFields);
     final albums = _ranked(music.albums, (a) => a.searchFields);
     final artists = _ranked(music.artists, (a) => a.searchFields);
+    final named = songs.isNotEmpty || albums.isNotEmpty || artists.isNotEmpty;
+    // Only searched where they're shown, or to tell if there's nothing at all.
+    final lyrics = _filter == null || _filter == _Filter.lyrics || !named
+        ? music.searchLyricsFor(_query)
+        : const <LyricMatch>[];
 
-    if (songs.isEmpty && albums.isEmpty && artists.isEmpty) {
-      return MessageView(icon: Icons.search_off, text: 'No results for "${_controller.text.trim()}"');
+    if (!named && lyrics.isEmpty) {
+      return MessageView(
+        icon: Icons.search_off,
+        text: music.indexingLyrics
+            ? 'No results for "${_controller.text.trim()}" yet. Blimp is still reading your songs’ lyrics.'
+            : 'No results for "${_controller.text.trim()}"',
+      );
     }
 
     void playSong(List<Song> list, int i) {
@@ -146,9 +157,20 @@ class _SearchScreenState extends State<SearchScreen> {
       onTap: () => open(ArtistScreen(artistName: artist.name)),
     );
 
+    Widget lyricRow(LyricMatch match) => _LyricResult(
+      match: match,
+      query: _controller.text.trim(),
+      onTap: () {
+        _commit();
+        // From just before the line, to hear it come in.
+        final at = match.time == null ? null : match.time! - const Duration(seconds: 1);
+        playAndOpen(context, () => music.startRadio(match.song, at: at == null || at.isNegative ? null : at));
+      },
+    );
+
     final children = <Widget>[
       ChipBar(
-        labels: const ['Songs', 'Albums', 'Artists'],
+        labels: const ['Songs', 'Albums', 'Artists', 'Lyrics'],
         selected: _filter?.index,
         onSelected: (i) => setState(() => _filter = _filter?.index == i ? null : _Filter.values[i]),
       ),
@@ -156,9 +178,22 @@ class _SearchScreenState extends State<SearchScreen> {
         _Filter.songs => [for (final (i, song) in songs.indexed) SongTile(song: song, onTap: () => playSong(songs, i))],
         _Filter.albums => albums.map(albumRow),
         _Filter.artists => artists.map(artistRow),
+        _Filter.lyrics => lyrics.isEmpty
+            ? [
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    _query.length < 3 ? 'Type a few more letters to search lyrics.' : 'No lyrics have those words.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ]
+            : lyrics.map(lyricRow),
         null => [
-          const ShelfHeader(title: 'Top result'),
-          _topResult(music, songs, albums, artists, playSong, open),
+          if (named) ...[
+            const ShelfHeader(title: 'Top result'),
+            _topResult(music, songs, albums, artists, playSong, open),
+          ],
           if (songs.isNotEmpty) ...[
             ShelfHeader(
               title: 'Songs',
@@ -166,6 +201,14 @@ class _SearchScreenState extends State<SearchScreen> {
               onAction: () => setState(() => _filter = _Filter.songs),
             ),
             for (final (i, song) in songs.take(4).indexed) SongTile(song: song, onTap: () => playSong(songs, i)),
+          ],
+          if (lyrics.isNotEmpty) ...[
+            ShelfHeader(
+              title: 'Lyrics',
+              actionLabel: lyrics.length > 3 ? 'Show all' : null,
+              onAction: () => setState(() => _filter = _Filter.lyrics),
+            ),
+            ...lyrics.take(named ? 3 : 10).map(lyricRow),
           ],
           if (albums.isNotEmpty) ...[
             ShelfHeader(
@@ -299,6 +342,73 @@ class _SearchScreenState extends State<SearchScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A song whose lyrics have the words searched for, with the line they're
+/// on and the words lit up. Tapping it plays the song from that line.
+class _LyricResult extends StatelessWidget {
+  const _LyricResult({required this.match, required this.query, required this.onTap});
+
+  final LyricMatch match;
+  final String query;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final song = match.song;
+    final line = match.text;
+    // Lit up where the words appear as typed; search also finds them with
+    // other punctuation or accents, which are left unlit. So are lines that
+    // lowercasing changes the length of (as it does Turkish İ), where the
+    // place found wouldn't line up with the line as written.
+    final lower = line.toLowerCase(), words = query.toLowerCase();
+    final at = words.isEmpty || lower.length != line.length ? -1 : lower.indexOf(words);
+    final quote = textTheme.bodyMedium?.copyWith(color: Colors.white, fontStyle: FontStyle.italic);
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            SongArtwork(songId: song.id, size: 56),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text.rich(
+                    at < 0
+                        ? TextSpan(text: '“$line”')
+                        : TextSpan(
+                            children: [
+                              TextSpan(text: '“${line.substring(0, at)}'),
+                              TextSpan(
+                                text: line.substring(at, at + words.length),
+                                style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700),
+                              ),
+                              TextSpan(text: '${line.substring(at + words.length)}”'),
+                            ],
+                          ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: quote,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    [song.title, song.artistName, if (match.time case final time?) formatDuration(time)].join(' • '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

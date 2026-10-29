@@ -142,6 +142,38 @@ abstract final class DesktopLibrary {
     return Isolate.run(() => _readLyrics(path));
   }
 
+  /// The lyrics of each of [songs] as written, by id, null for those with
+  /// none, read together in one isolate. Songs whose files aren't there
+  /// (on a drive that's unplugged, say) are left out, to try again later.
+  static Future<Map<int, String?>> lyricsOf(List<Song> songs) {
+    final paths = {for (final s in songs) s.id: ?s.path};
+    return Isolate.run(() => {
+      for (final MapEntry(:key, :value) in paths.entries)
+        if (File(value).existsSync()) key: _readLyrics(value),
+    });
+  }
+
+  /// A stamp for each of [songs] that changes when its file or the .lrc
+  /// file beside it does, by id; songs whose files aren't there are left
+  /// out.
+  static Future<Map<int, String>> lyricsStamps(List<Song> songs) {
+    final paths = {for (final s in songs) s.id: ?s.path};
+    return Isolate.run(() => {
+      for (final MapEntry(:key, :value) in paths.entries) key: ?_lyricsStamp(value),
+    });
+  }
+
+  static String? _lyricsStamp(String path) {
+    if (!path.contains('.')) return null;
+    final song = File(path).statSync();
+    if (song.type == FileSystemEntityType.notFound) return null;
+    final lrc = File(_lrcPath(path)).statSync();
+    final lrcModified = lrc.type == FileSystemEntityType.notFound ? 0 : lrc.modified.millisecondsSinceEpoch;
+    return '${song.size}.${song.modified.millisecondsSinceEpoch}.$lrcModified';
+  }
+
+  static String _lrcPath(String path) => '${path.substring(0, path.lastIndexOf('.'))}.lrc';
+
   static String? _readLyrics(String path) {
     String? text;
     try {
@@ -150,15 +182,26 @@ abstract final class DesktopLibrary {
       // Unreadable tags: try for a .lrc file instead.
     }
     if (text == null || text.trim().isEmpty) {
-      final lrc = File('${path.substring(0, path.lastIndexOf('.'))}.lrc');
       try {
-        if (lrc.existsSync()) text = lrc.readAsStringSync();
-      } on FileSystemException {
+        final lrc = File(_lrcPath(path));
+        if (lrc.existsSync()) text = _readText(lrc);
+      } on Object {
         return null;
       }
     }
     final cleaned = text?.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
     return cleaned == null || cleaned.isEmpty ? null : cleaned;
+  }
+
+  /// A text file's contents: UTF-8, or else as Windows' older "ANSI" text,
+  /// which many .lrc files are saved as.
+  static String _readText(File file) {
+    final bytes = file.readAsBytesSync();
+    try {
+      return utf8.decode(bytes);
+    } on FormatException {
+      return latin1.decode(bytes);
+    }
   }
 
   /// Covers kept beside the songs, used when a file has none of its own.

@@ -19,6 +19,7 @@ import 'folders.dart';
 import 'home_widgets.dart';
 import 'listening_log.dart';
 import 'listening_stats.dart';
+import 'lyrics_index.dart';
 import 'media_library.dart';
 import 'milestones.dart';
 import 'playlists.dart';
@@ -278,6 +279,11 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     };
     _readSettings(prefs);
     try {
+      try {
+        _lyrics = await LyricsIndex.open();
+      } on Object {
+        // No folder to keep it in: lyrics just aren't searched.
+      }
       _log = await ListeningLog.open();
       await load();
     } finally {
@@ -379,6 +385,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     }
     _scannedById = {for (final s in _scanned) s.id: s};
     status = LibraryStatus.ready;
+    // Files may have changed since: lyrics search looks at them afresh.
+    _lyricStamps.clear();
     _applyFilters();
     await _restoreQueue();
     unawaited(_loadReleaseTypes());
@@ -466,7 +474,10 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _invalidateHistory();
     _favouriteSongs = null;
     _playlistSongs.clear();
+    _lyricSearch = null;
     _notify({MusicAspect.library, MusicAspect.history, MusicAspect.favourites, MusicAspect.playlists});
+    // Songs brought back (a folder unhidden, say) may not have been read.
+    unawaited(_indexLyrics());
   }
 
   void _index(List<Song> all) {
@@ -1308,6 +1319,97 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // ---------------------------------------------------------------------------
+  // Lyrics search: every song's lyrics, read in the background (see
+  // [LyricsIndex]).
+
+  LyricsIndex? _lyrics;
+
+  /// A stamp for each song's files as of the last scan, by id (see
+  /// [MediaLibrary.lyricsStamps]); songs are read again when it changes.
+  final Map<int, String> _lyricStamps = {};
+
+  /// Whether songs' lyrics are being read.
+  bool get indexingLyrics => _indexingLyrics;
+  bool _indexingLyrics = false;
+
+  /// Asked to look again while reading: songs may have come in meanwhile.
+  bool _indexLyricsAgain = false;
+
+  /// Reads the lyrics of songs not read yet, or changed since, a batch at a
+  /// time, saving as it goes. Quick after the first time: only new and
+  /// changed files are read. Asked again while already reading, it looks
+  /// again once it's done.
+  Future<void> _indexLyrics() async {
+    final index = _lyrics;
+    if (index == null) return;
+    if (_indexingLyrics) {
+      _indexLyricsAgain = true;
+      return;
+    }
+    _indexingLyrics = true;
+    _notify({MusicAspect.searches});
+    try {
+      do {
+        _indexLyricsAgain = false;
+        await _indexLyricsOnce(index);
+      } while (_indexLyricsAgain);
+    } on Object {
+      // Couldn't read or save: the next scan tries the rest again.
+    } finally {
+      _indexingLyrics = false;
+      _notify({MusicAspect.searches});
+    }
+  }
+
+  Future<void> _indexLyricsOnce(LyricsIndex index) async {
+    final library = songs;
+    final unstamped = [for (final s in library) if (!_lyricStamps.containsKey(s.id)) s];
+    if (unstamped.isNotEmpty) _lyricStamps.addAll(await MediaLibrary.lyricsStamps(unstamped));
+    final pending = [
+      for (final s in library)
+        if (_lyricStamps[s.id] case final stamp? when !index.has(s, stamp)) (s, stamp),
+    ];
+    // Songs no longer found (deleted, say) are forgotten. Hidden ones are
+    // kept, for when their folder is shown again.
+    var changed = _scannedById.isNotEmpty && index.keepOnly(_scannedById.keys.toSet());
+    for (var i = 0; i < pending.length; i += 50) {
+      final batch = pending.skip(i).take(50).toList();
+      final texts = await MediaLibrary.readLyrics([for (final (song, _) in batch) song]);
+      if (texts == null) continue;
+      final parsed = await LyricsIndex.parse(texts);
+      for (final (song, stamp) in batch) {
+        // Left out: its file couldn't be opened, so it's tried again later.
+        if (parsed[song.id] case final lyrics?) index.put(song, stamp, lyrics);
+      }
+      changed = true;
+      _lyricSearch = null;
+      // Results show up as they're read.
+      _notify({MusicAspect.searches});
+      // Saved every so often rather than after each batch: the file grows
+      // to a few megabytes.
+      if ((i ~/ 50) % 10 == 9) await index.save();
+    }
+    if (changed) await index.save();
+  }
+
+  /// The last lyrics search, kept so the screen rebuilding doesn't search
+  /// again; cleared when the library or what's been read changes.
+  (String, List<LyricMatch>)? _lyricSearch;
+
+  /// Songs whose lyrics have [query] in them (see [searchLyrics]).
+  List<LyricMatch> searchLyricsFor(String query) {
+    final index = _lyrics;
+    if (index == null) return const [];
+    if (_lyricSearch case (final last, final found) when last == query) return found;
+    final found = searchLyrics(query, [
+      for (final song in songs)
+        if (index.of(song) case final lyrics?) (song, lyrics),
+    ]);
+    _lyricSearch = (query, found);
+    return found;
+  }
+
+  // ---------------------------------------------------------------------------
   // Volume: normalisation, fading between songs, and the sleep timer's fade
 
   /// Whether songs are turned up or down to play about as loud as each other.
@@ -1732,7 +1834,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   /// Songs before [index] are only ever queued up front: inserting ahead of
   /// the playing song makes just_audio briefly report the wrong one as
   /// current (and count it as played), and can desync its shuffle order.
-  Future<void> playSongs(List<Song> list, {int index = 0, bool shuffle = false}) async {
+  Future<void> playSongs(List<Song> list, {int index = 0, bool shuffle = false, Duration? at}) async {
     if (list.isEmpty) return;
     if (shuffle) {
       list = [...list]..shuffle();
@@ -1747,13 +1849,13 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       _unshuffled = null;
       _shufflingChanges.add(false);
     }
-    await _setQueue(list.sublist(start, end).map(_source).toList(), index: index - start);
+    await _setQueue(list.sublist(start, end).map(_source).toList(), index: index - start, at: at);
     player.play();
     await _topUpQueue();
   }
 
-  /// Loads [sources] into the player, at [index].
-  Future<void> _setQueue(List<AudioSource> sources, {required int index}) async {
+  /// Loads [sources] into the player, at [index], [at] into it if given.
+  Future<void> _setQueue(List<AudioSource> sources, {required int index, Duration? at}) async {
     // Nothing may be added until the player has loaded the new list: added
     // meanwhile, the player loads without it and the two queues fall out of
     // step (and every later change to the queue fails).
@@ -1763,6 +1865,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       await player.setAudioSources(
         sources,
         initialIndex: index,
+        initialPosition: at,
         shuffleOrder: _shuffleOrder = QueueShuffleOrder(isAutoplay: (i) {
           final sequence = player.sequence;
           return i < sequence.length && isAutoplay(sequence[i]);
@@ -2073,9 +2176,10 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   /// How many songs a radio queues up front; autoplay carries on after.
   static const _radioLength = 25;
 
-  /// Plays [song] followed by songs like it (same artist and genre).
-  Future<void> startRadio(Song song) =>
-      playSongs([song, ..._songsLike([song], _radioLength - 1, exclude: {song})]);
+  /// Plays [song] followed by songs like it (same artist and genre), from
+  /// [at] into it if given.
+  Future<void> startRadio(Song song, {Duration? at}) =>
+      playSongs([song, ..._songsLike([song], _radioLength - 1, exclude: {song})], at: at);
 
   /// Back to the start of the song a few seconds in (or with nothing before
   /// it), otherwise to the song before, as players do.

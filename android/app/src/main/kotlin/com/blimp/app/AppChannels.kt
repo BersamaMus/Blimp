@@ -70,7 +70,7 @@ object AppChannels {
             val executor = when (call.method) {
                 "getArtwork" -> MediaHandler.artworkExecutor
                 "getWaveform", "getGain" -> MediaHandler.waveformExecutor
-                "getReleaseTypes", "getHiRes" -> MediaHandler.releaseTypeExecutor
+                "getReleaseTypes", "getHiRes", "getLyricsBatch", "getLyricsStamps" -> MediaHandler.releaseTypeExecutor
                 else -> MediaHandler.queryExecutor
             }
             executor.execute {
@@ -92,6 +92,8 @@ object AppChannels {
                         "getGain" -> media.getGain(call.argument<Number>("id")!!.toLong())
                         "getReleaseTypes" -> media.getReleaseTypes(call.argument<List<Number>>("ids")!!.map { it.toLong() })
                         "getHiRes" -> media.getHiRes(call.argument<List<Map<String, Any?>>>("songs")!!)
+                        "getLyricsBatch" -> media.getLyricsBatch(call.argument<List<Number>>("ids")!!.map { it.toLong() })
+                        "getLyricsStamps" -> media.getLyricsStamps(call.argument<List<Map<String, Any?>>>("songs")!!)
                         else -> {
                             main.post { result.notImplemented() }
                             return@execute
@@ -404,23 +406,82 @@ private class MediaHandler(private val context: Context) {
         return emptyMap()
     }
 
+    /** The song's lyrics as saved (see [readLyrics]). Null if there are none. */
+    fun getLyrics(id: Long): String? = readLyrics(id, strict = false)
+
+    /**
+     * The lyrics of each song of [ids] (see [getLyrics]), by id, "" for those
+     * with none, for lyrics search to read the whole library a batch at a
+     * time. Songs whose files can't be opened (a card still being mounted,
+     * say) are left out, so they're tried again later rather than taken to
+     * have none.
+     */
+    fun getLyricsBatch(ids: List<Long>): Map<String, String> {
+        val found = mutableMapOf<String, String>()
+        for (id in ids) {
+            try {
+                found["$id"] = readLyrics(id, strict = true) ?: ""
+            } catch (e: Exception) {
+                // Couldn't be opened: left out.
+            }
+        }
+        return found
+    }
+
+    /**
+     * A stamp for each of the songs given (as id and path) that changes when
+     * its file, or the .lrc file beside it, does, by id, so lyrics search
+     * only reads lyrics again when they may have changed.
+     */
+    fun getLyricsStamps(songs: List<Map<String, Any?>>): Map<String, String> {
+        // When each file last changed, as Android has it, in one query.
+        val modified = mutableMapOf<Long, String>()
+        context.contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.SIZE, MediaStore.Audio.Media.DATE_MODIFIED),
+            null, null, null,
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                modified[cursor.getLong(0)] = "${cursor.getLong(1)}.${cursor.getLong(2)}"
+            }
+        }
+        val stamps = mutableMapOf<String, String>()
+        for (song in songs) {
+            val id = (song["id"] as Number).toLong()
+            val stamp = modified[id] ?: continue
+            val path = song["path"] as String?
+            // 0 when there's none, or it can't be seen (from Android 13).
+            val lrc = path?.let { File(it.substringBeforeLast('.') + ".lrc").lastModified() } ?: 0L
+            stamps["$id"] = "$stamp.$lrc"
+        }
+        return stamps
+    }
+
     /**
      * The song's lyrics as saved, timed (LRC) or plain: from its own tags, or
      * else a .lrc file of the same name beside it. Null if there are none.
+     * When [strict], a file that can't be opened throws rather than counting
+     * as having none.
      *
      * From Android 13 a music app may only read audio files, so the .lrc file
      * is only found on older versions.
      */
-    fun getLyrics(id: Long): String? {
+    private fun readLyrics(id: Long, strict: Boolean): String? {
         val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+        val descriptor = try {
+            context.contentResolver.openFileDescriptor(uri, "r")
+        } catch (e: Exception) {
+            if (strict) throw e
+            null
+        }
         try {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
-                java.io.FileInputStream(descriptor.fileDescriptor).channel.use { channel ->
-                    EmbeddedLyrics.read(ChannelByteSource(channel))?.let { return it }
+            descriptor?.use {
+                java.io.FileInputStream(it.fileDescriptor).channel.use { channel ->
+                    EmbeddedLyrics.read(ChannelByteSource(channel))?.let { text -> return text }
                 }
             }
         } catch (e: Exception) {
-            // Unreadable: try for a .lrc file instead.
+            // Unreadable tags: try for a .lrc file instead.
         }
         val path = getFileInfo(id)["path"] as? String ?: return null
         val lrc = File(path.substringBeforeLast('.') + ".lrc")

@@ -4,7 +4,7 @@ publish_to: 'none'
 
 # name+build number: versionName and versionCode on Android. Raise the build
 # number for every upload to Google Play.
-version: 1.2.0+4
+version: 1.3.0+5
 
 environment:
   sdk: ^3.13.5
@@ -50,7 +50,7 @@ msix_config:
   publisher_display_name: BersamaMus
   identity_name: BersamaMus.BlimpMusicPlayer
   publisher: CN=11D4E812-15F4-4555-8861-ABF21C21C9AC
-  msix_version: 1.2.0.0
+  msix_version: 1.3.0.0
   logo_path: store_listing/icon_512.png
   languages: en-us
   store: true
