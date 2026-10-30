@@ -16,6 +16,9 @@ import 'media_library.dart';
 /// folder instead of asking Android for them.
 final isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
+/// One frame of an ID3 tag.
+typedef Id3Frame = ({String id, Uint8List flags, Uint8List data});
+
 /// The desktop app's library: the audio files in one folder and those under
 /// it, read from their tags. What Android's media index and Blimp's Kotlin
 /// code tell the phone app, this works out from the files themselves.
@@ -142,6 +145,37 @@ abstract final class DesktopLibrary {
     return Isolate.run(() => _readLyrics(path));
   }
 
+  /// Just the lyrics saved inside the song's file, not a .lrc file beside
+  /// it; null if it has none. Throws if the file can't be read.
+  static Future<String?> embeddedLyrics(Song song) async {
+    final path = song.path;
+    if (path == null) throw const FileSystemException("Couldn't find the song's file.");
+    return Isolate.run(() => _embeddedLyrics(path));
+  }
+
+  /// Where taggers put lyrics other than a tag's own lyrics field, as the
+  /// phone app reads them (EmbeddedLyrics.kt).
+  static const lyricsKeys = ['LYRICS', 'UNSYNCEDLYRICS', 'UNSYNCED LYRICS', 'SYNCEDLYRICS'];
+
+  /// The lyrics in [path]'s own tags, tidied. Null if it has none. The tag
+  /// editor replaces what it's told is there, so this throws if the tags
+  /// are damaged or their lyrics can't be read, where saying there are none
+  /// would have saving lose them.
+  static String? _embeddedLyrics(String path) {
+    final file = File(path);
+    if (_id3Tag(file) case (:final version, :final frames)) return _id3Lyrics(frames, version);
+    if (_cleanLyrics(readMetadata(file).lyrics) case final text?) return text;
+    final tags = _customTags(file);
+    return lyricsKeys.map((key) => _cleanLyrics(tags[key])).nonNulls.firstOrNull;
+  }
+
+  /// [text] with even line endings and no space around it; null if that
+  /// leaves nothing.
+  static String? _cleanLyrics(String? text) {
+    final cleaned = text?.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+    return cleaned == null || cleaned.isEmpty ? null : cleaned;
+  }
+
   /// The lyrics of each of [songs] as written, by id, null for those with
   /// none, read together in one isolate. Songs whose files aren't there
   /// (on a drive that's unplugged, say) are left out, to try again later.
@@ -175,22 +209,21 @@ abstract final class DesktopLibrary {
   static String _lrcPath(String path) => '${path.substring(0, path.lastIndexOf('.'))}.lrc';
 
   static String? _readLyrics(String path) {
-    String? text;
     try {
-      text = readMetadata(File(path)).lyrics;
+      if (_embeddedLyrics(path) case final text?) return text;
     } catch (_) {
-      // Unreadable tags: try for a .lrc file instead.
-    }
-    if (text == null || text.trim().isEmpty) {
+      // Too unusual to edit safely, but the tag reader may still manage to
+      // show them. If not, try for a .lrc file instead.
       try {
-        final lrc = File(_lrcPath(path));
-        if (lrc.existsSync()) text = _readText(lrc);
-      } on Object {
-        return null;
-      }
+        if (_cleanLyrics(readMetadata(File(path)).lyrics) case final text?) return text;
+      } catch (_) {}
     }
-    final cleaned = text?.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
-    return cleaned == null || cleaned.isEmpty ? null : cleaned;
+    try {
+      final lrc = File(_lrcPath(path));
+      return lrc.existsSync() ? _cleanLyrics(_readText(lrc)) : null;
+    } on Object {
+      return null;
+    }
   }
 
   /// A text file's contents: UTF-8, or else as Windows' older "ANSI" text,
@@ -540,7 +573,7 @@ abstract final class DesktopLibrary {
         // Compressed, encrypted or unsynchronised frames aren't worth it here.
         if (version == 4 ? formatFlags & 0x0E != 0 : formatFlags & 0xC0 != 0) continue;
         final body = tag.sublist(start + (version == 4 && formatFlags & 0x01 != 0 ? 4 : 0), at);
-        if (_userText(body) case (final description, final value)) frames[description.toUpperCase()] = value;
+        if (userTextFrame(body) case (final description, final value)) frames[description.toUpperCase()] = value;
       }
       return frames;
     } on FileSystemException {
@@ -550,12 +583,119 @@ abstract final class DesktopLibrary {
     }
   }
 
+  /// The version and frames of the ID3 tag at the start of [file]; null if
+  /// it doesn't start with one. Throws if the tag can't be read in full.
+  static ({int version, List<Id3Frame> frames})? _id3Tag(File file) {
+    final reader = file.openSync();
+    try {
+      final header = reader.readSync(10);
+      if (header.length < 10 || ascii.decode(header.sublist(0, 3), allowInvalid: true) != 'ID3') return null;
+      final version = header[3];
+      final flags = header[5];
+      // As the tag editor refuses them too.
+      if ((version != 3 && version != 4) || flags & 0x80 != 0) throw const FormatException('Unusual tag');
+      final body = reader.readSync(min(_syncsafe(header, 6), reader.lengthSync() - 10));
+      final frames = id3Frames(body, version: version, flags: flags);
+      if (frames == null) throw const FormatException('Damaged tag');
+      return (version: version, frames: frames);
+    } finally {
+      reader.closeSync();
+    }
+  }
+
+  /// The frames of an ID3 tag's [body]; null if they don't fit it, as when
+  /// it's damaged.
+  static List<Id3Frame>? id3Frames(Uint8List body, {required int version, required int flags}) {
+    var first = 0;
+    if (flags & 0x40 != 0 && body.length >= 4) {
+      // An extended header, to skip.
+      first = version == 4 ? _syncsafe(body, 0) : ByteData.sublistView(body).getUint32(0) + 4;
+    }
+    // Version 2.4 sizes are syncsafe, but iTunes and others write them as
+    // plain numbers, so that's tried if they don't add up.
+    return _framesFrom(body, first, syncsafe: version == 4) ??
+        (version == 4 ? _framesFrom(body, first, syncsafe: false) : null);
+  }
+
+  static List<Id3Frame>? _framesFrom(Uint8List body, int at, {required bool syncsafe}) {
+    final data = ByteData.sublistView(body);
+    final frames = <Id3Frame>[];
+    while (at + 10 <= body.length) {
+      if (body[at] == 0) break; // Padding.
+      final id = ascii.decode(body.sublist(at, at + 4), allowInvalid: true);
+      if (!RegExp(r'^[A-Z0-9]{4}$').hasMatch(id)) return null;
+      final length = syncsafe ? _syncsafe(body, at + 4) : data.getUint32(at + 4);
+      final start = at + 10;
+      if (start + length > body.length) return null;
+      frames.add((id: id, flags: body.sublist(at + 8, at + 10), data: body.sublist(start, start + length)));
+      at = start + length;
+    }
+    return frames;
+  }
+
+  /// [frame]'s contents with any wrapping taken off; null if it's compressed
+  /// or encrypted, which can't be read.
+  static Uint8List? _frameBody(Id3Frame frame, int version) {
+    final format = frame.flags[1];
+    if (version == 4 ? format & 0x0C != 0 : format & 0xC0 != 0) return null;
+    var body = frame.data;
+    if (version != 4) return body;
+    if (format & 0x40 != 0) body = body.sublist(min(1, body.length));
+    if (format & 0x01 != 0) body = body.sublist(min(4, body.length));
+    if (format & 0x02 != 0) {
+      // Every 0xFF 0x00 was written for 0xFF.
+      body = Uint8List.fromList([
+        for (var i = 0; i < body.length; i++)
+          if (i == 0 || body[i] != 0 || body[i - 1] != 0xFF) body[i],
+      ]);
+    }
+    return body;
+  }
+
+  /// A USLT frame's description and words; null if they can't be read. Its
+  /// body is a TXXX frame's with a 3-letter language after the encoding.
+  static (String, String)? _usltText(Id3Frame frame, int version) {
+    final body = _frameBody(frame, version);
+    if (body == null || body.length < 4) return null;
+    return userTextFrame(Uint8List.fromList([body[0], ...body.skip(4)]));
+  }
+
+  /// Where the words shown as a tag's lyrics are among [frames]: with
+  /// several languages, the first with any, as the phone app reads them.
+  /// -1 if no USLT frame has any.
+  static int shownLyricsFrame(List<Id3Frame> frames, int version) => frames.indexWhere(
+    (f) => f.id == 'USLT' && (_usltText(f, version)?.$2.isNotEmpty ?? false),
+  );
+
+  /// The language and description of a readable USLT [frame], to save with
+  /// new words.
+  static (List<int>, String) lyricsLabel(Id3Frame frame, int version) =>
+      (_frameBody(frame, version)!.sublist(1, 4), _usltText(frame, version)!.$1);
+
+  static String? _id3Lyrics(List<Id3Frame> frames, int version) {
+    final userText = <String, String>{};
+    for (final frame in frames) {
+      if (frame.id != 'USLT' && frame.id != 'TXXX') continue;
+      final body = _frameBody(frame, version);
+      // A hidden user text frame may be lyrics too.
+      if (body == null) throw const FormatException("Lyrics can't be read");
+      if (frame.id == 'TXXX') {
+        if (userTextFrame(body) case (final description, final value)) {
+          userText.putIfAbsent(description.toUpperCase(), () => value);
+        }
+      }
+    }
+    final shown = shownLyricsFrame(frames, version);
+    if (shown >= 0) return _cleanLyrics(_usltText(frames[shown], version)?.$2);
+    return lyricsKeys.map((key) => _cleanLyrics(userText[key])).nonNulls.firstOrNull;
+  }
+
   static int _syncsafe(List<int> bytes, int at) =>
       (bytes[at] & 0x7F) << 21 | (bytes[at + 1] & 0x7F) << 14 | (bytes[at + 2] & 0x7F) << 7 | bytes[at + 3] & 0x7F;
 
   /// A TXXX frame's description and value: an encoding byte, then both,
   /// split by a terminator one byte wide, or two for UTF-16.
-  static (String, String)? _userText(Uint8List body) {
+  static (String, String)? userTextFrame(Uint8List body) {
     if (body.isEmpty) return null;
     final encoding = body[0];
     final wide = encoding == 1 || encoding == 2;

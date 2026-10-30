@@ -17,7 +17,7 @@ enum CloseAction {
 }
 
 /// Closing the window to the system tray, to keep playing in the background,
-/// and the tray menu's buttons. The Windows half is
+/// the tray menu's buttons, and the window's title. The Windows half is
 /// windows/runner/background.cpp.
 class DesktopWindow {
   DesktopWindow._();
@@ -63,6 +63,8 @@ class DesktopWindow {
     _music = music;
     _ask = ask;
     _channel.setMethodCallHandler(_onCall);
+    music.player.sequenceStateStream.listen((_) => _sendTitle());
+    music.player.playingStream.listen((_) => _sendTitle());
     final saved = (await SharedPreferences.getInstance()).getString(_closeActionKey);
     closeAction.value = CloseAction.values.asNameMap()[saved] ?? CloseAction.ask;
     await _send();
@@ -80,6 +82,18 @@ class DesktopWindow {
     } on MissingPluginException {
       // Only Windows has a tray to close to; elsewhere closing quits.
     }
+  }
+
+  static String _title = 'Blimp';
+
+  /// The window's title, which the taskbar shows too: the song while one is
+  /// playing, otherwise just Blimp.
+  static Future<void> _sendTitle() async {
+    final song = _music.currentSong;
+    final title = song != null && _music.player.playing ? '${song.title} - ${song.artistName}' : 'Blimp';
+    if (title == _title) return;
+    _title = title;
+    await _channel.invokeMethod('setTitle', title);
   }
 
   static Future<void> _onCall(MethodCall call) async {

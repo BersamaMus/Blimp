@@ -5,6 +5,7 @@
 #include <string>
 
 #include "resource.h"
+#include "utils.h"
 
 using flutter::EncodableMap;
 using flutter::EncodableValue;
@@ -30,6 +31,9 @@ Background::Background(flutter::BinaryMessenger* messenger, HWND window)
     HandleCall(call, std::move(result));
   });
   taskbar_created_ = RegisterWindowMessageW(L"TaskbarCreated");
+  // How a second copy of Blimp finds this window, now that the title
+  // changes with the song.
+  SetPropW(window_, kWindowMark, reinterpret_cast<HANDLE>(1));
 
   // The tray's own small size, so it isn't a big icon scaled down.
   icon_ = static_cast<HICON>(LoadImageW(
@@ -46,6 +50,7 @@ Background::Background(flutter::BinaryMessenger* messenger, HWND window)
 
 Background::~Background() {
   RemoveIcon();
+  RemovePropW(window_, kWindowMark);
   if (icon_) DestroyIcon(icon_);
 }
 
@@ -119,6 +124,10 @@ void Background::HandleCall(
     const auto* compact = std::get_if<bool>(call.arguments());
     result->Success();
     PostMessage(window_, kCompactMessage, compact && *compact ? 1 : 0, 0);
+  } else if (method == "setTitle") {
+    const auto* title = std::get_if<std::string>(call.arguments());
+    SetWindowTextW(window_, title ? Utf16FromUtf8(*title).c_str() : L"Blimp");
+    result->Success();
   } else if (method == "quit") {
     result->Success();
     Quit();

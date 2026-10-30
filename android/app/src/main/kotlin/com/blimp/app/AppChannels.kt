@@ -89,6 +89,7 @@ object AppChannels {
                         )
                         "openFolder" -> media.openFolder(call.argument<String>("path")!!)
                         "getLyrics" -> media.getLyrics(call.argument<Number>("id")!!.toLong())
+                        "getEmbeddedLyrics" -> media.getEmbeddedLyrics(call.argument<Number>("id")!!.toLong())
                         "getGain" -> media.getGain(call.argument<Number>("id")!!.toLong())
                         "getReleaseTypes" -> media.getReleaseTypes(call.argument<List<Number>>("ids")!!.map { it.toLong() })
                         "getHiRes" -> media.getHiRes(call.argument<List<Map<String, Any?>>>("songs")!!)
@@ -408,6 +409,21 @@ private class MediaHandler(private val context: Context) {
 
     /** The song's lyrics as saved (see [readLyrics]). Null if there are none. */
     fun getLyrics(id: Long): String? = readLyrics(id, strict = false)
+
+    /**
+     * Just the lyrics saved inside the song's file, not a .lrc file beside it,
+     * for the tag editor. Null if it has none; throws if it can't be read.
+     */
+    fun getEmbeddedLyrics(id: Long): String? {
+        val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+        val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
+            ?: throw java.io.IOException("Couldn't open the song's file")
+        descriptor.use {
+            java.io.FileInputStream(it.fileDescriptor).channel.use { channel ->
+                return EmbeddedLyrics.readStrict(ChannelByteSource(channel))
+            }
+        }
+    }
 
     /**
      * The lyrics of each song of [ids] (see [getLyrics]), by id, "" for those

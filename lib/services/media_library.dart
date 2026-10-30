@@ -402,6 +402,14 @@ class MediaLibrary {
         .catchError((Object _) => null);
   }
 
+  /// Just the lyrics saved inside the song's file, as written, for the tag
+  /// editor: not a .lrc file beside it, and not kept. Null if it has none;
+  /// throws if the file can't be read.
+  static Future<String?> embeddedLyrics(Song song) async {
+    if (isDesktop) return DesktopLibrary.embeddedLyrics(song);
+    return _channel.invokeMethod<String>('getEmbeddedLyrics', {'id': song.id});
+  }
+
   /// The lyrics saved with each of [songs] (in its tags, or a .lrc file
   /// beside it), as written, by song id; null for songs without any. Songs
   /// whose files couldn't be opened (a card still being mounted, say) are

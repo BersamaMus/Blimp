@@ -3,6 +3,7 @@ package com.blimp.app
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class EmbeddedLyricsTest {
@@ -51,6 +52,60 @@ class EmbeddedLyricsTest {
     fun readsLyricsFromTxxx() {
         val txxx = bytes(3, "LYRICS", 0, "From TXXX".toByteArray(Charsets.UTF_8))
         assertEquals("From TXXX", read(id3(3, frame(3, "TXXX", txxx))))
+    }
+
+    private fun readStrict(file: ByteArray) = EmbeddedLyrics.readStrict(ArrayByteSource(file))
+
+    @Test
+    fun strictReadFindsLyricsAndNone() {
+        val uslt = bytes(0, "eng", 0, "Words")
+        assertEquals("Words", readStrict(id3(3, frame(3, "USLT", uslt))))
+        assertNull(readStrict(id3(3, frame(3, "TIT2", bytes(0, "Title")))))
+    }
+
+    @Test
+    fun strictReadThrowsOnDamagedTag() {
+        val good = frame(3, "TIT2", bytes(0, "Title"))
+        val tooLong = bytes("USLT", be32(5000), 0, 0, 0, "eng", 0, "Words")
+        val file = id3(3, good, tooLong)
+        assertNull(read(file))
+        assertThrows(IllegalStateException::class.java) { readStrict(file) }
+    }
+
+    @Test
+    fun strictReadThrowsOnCompressedLyrics() {
+        val compressed = bytes("USLT", be32(9), 0, 0x80, 0, "eng", 0, "Words")
+        val file = id3(3, compressed)
+        assertNull(read(file))
+        assertThrows(IllegalStateException::class.java) { readStrict(file) }
+    }
+
+    @Test
+    fun strictReadThrowsOnCompressedUserText() {
+        val compressed = bytes("TXXX", be32(10), 0, 0x80, 0, "LYRICS", 0, "W")
+        assertThrows(IllegalStateException::class.java) { readStrict(id3(3, compressed)) }
+    }
+
+    @Test
+    fun v24TagsWithPlainSizesAreRead() {
+        // A cover over 127 bytes: its plain size isn't valid read as syncsafe.
+        val cover = bytes(0, "image/png", 0, 3, 0, ByteArray(300) { 7 })
+        val file = id3(4, frame(3, "APIC", cover), frame(3, "USLT", bytes(3, "eng", 0, "Words")))
+        assertEquals("Words", read(file))
+        assertEquals("Words", readStrict(file))
+    }
+
+    @Test
+    fun strictReadThrowsOnFramesNeitherWayFits() {
+        val file = id3(3, frame(3, "TIT2", bytes(0, "Title")), frame(3, "bad!", bytes(0, "x")))
+        assertThrows(IllegalStateException::class.java) { readStrict(file) }
+    }
+
+    @Test
+    fun emptyFramesAreSkipped() {
+        val file = id3(3, frame(3, "TCOM", ByteArray(0)), frame(3, "USLT", bytes(0, "eng", 0, "Words")))
+        assertEquals("Words", read(file))
+        assertEquals("Words", readStrict(file))
     }
 
     @Test

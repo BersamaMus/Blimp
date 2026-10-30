@@ -17,4 +17,9 @@ are the changes:
   have reversed them. Each is now moved from the last entry to its own place
   (`concatenatingInsertAll`).
 
+- A place to start from (`initialPosition`) was only noted after `open()`
+  returned, but the seek to it is set off by the duration arriving, which can
+  happen first. The song then started from 0:00. It's now noted before
+  opening, and sought to after opening if the duration has already come.
+
 The example app was left out.

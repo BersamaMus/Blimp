@@ -34,13 +34,48 @@ class _TagEditorScreenState extends State<TagEditorScreen> {
     for (final MapEntry(:key, :value) in _fields.entries) key: TextEditingController(text: value.initial),
   };
 
+  final _lyrics = TextEditingController();
+
+  /// The lyrics saved in the file, once read; "" if it has none.
+  String? _lyricsInitial;
+
+  /// Why the lyrics couldn't be read, if they couldn't. They're left alone
+  /// then, so lyrics that are there can't be lost.
+  String? _lyricsError;
+
+  /// Whether the lyrics shown on Now Playing come from a .lrc file beside the
+  /// song, rather than the file itself.
+  bool _lyricsFromLrc = false;
+
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLyrics();
+  }
+
+  Future<void> _loadLyrics() async {
+    try {
+      final text = await MediaLibrary.embeddedLyrics(widget.song) ?? '';
+      final fromLrc = text.isEmpty && await MediaLibrary.getLyrics(widget.song) != null;
+      if (!mounted) return;
+      setState(() {
+        _lyricsInitial = text;
+        _lyricsFromLrc = fromLrc;
+        _lyrics.text = text;
+      });
+    } on Object {
+      if (mounted) setState(() => _lyricsError = "Couldn't read this song's lyrics, so they're left as they are.");
+    }
+  }
 
   @override
   void dispose() {
     for (final controller in _controllers.values) {
       controller.dispose();
     }
+    _lyrics.dispose();
     super.dispose();
   }
 
@@ -60,6 +95,10 @@ class _TagEditorScreenState extends State<TagEditorScreen> {
       year: _changed('year'),
       track: _changed('track'),
       disc: _changed('disc'),
+      lyrics: switch (_lyricsInitial) {
+        final initial? when _lyrics.text.trim() != initial => _lyrics.text.trim(),
+        _ => null,
+      },
     );
     if (changes.isEmpty) return Navigator.pop(context);
     if (changes.title?.isEmpty ?? false) return _say('A song needs a title.');
@@ -146,6 +185,25 @@ class _TagEditorScreenState extends State<TagEditorScreen> {
               const SizedBox(width: 12),
               Expanded(child: field('disc')),
             ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _lyrics,
+            enabled: !_saving && _lyricsInitial != null,
+            keyboardType: TextInputType.multiline,
+            textCapitalization: TextCapitalization.sentences,
+            minLines: 4,
+            maxLines: 12,
+            decoration: InputDecoration(
+              labelText: 'Lyrics',
+              alignLabelWithHint: true,
+              hintText: _lyricsInitial == null && _lyricsError == null ? 'Reading…' : null,
+              helperText: _lyricsError ??
+                  (_lyricsFromLrc
+                      ? 'This song’s lyrics come from a .lrc file beside it. Lyrics typed here are saved into the song and shown instead.'
+                      : 'Plain, or timed with lines like [01:23.45] so they follow along.'),
+              helperMaxLines: 3,
+            ),
           ),
           const SizedBox(height: 20),
           Text(

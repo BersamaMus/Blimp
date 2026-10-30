@@ -33,8 +33,8 @@ Windows may warn that the installer is from an unknown publisher. Click
 
 ## Features
 
-- **Live visualizer:** Bars, Mirror, Wave, Radial, Pulse, Particles and
-  Starfield styles, coloured by the song's genre or its artwork.
+- **Live visualizer:** Bars, Mirror, Wave, Radial and Pulse styles,
+  coloured by the song's artwork.
 - **Synced lyrics:** read from your files' tags or from `.lrc` files beside them.
   Tap a line to jump to it, or open Karaoke mode to sing along, word by word
   when the lyrics time each word.
@@ -48,7 +48,7 @@ Windows may warn that the installer is from an unknown publisher. Click
 - **Playlists:** your own, smart playlists that fill themselves by rules
   (genre, plays, rating, when last played and more), and the queue saved as
   a playlist.
-- **Tidy up:** edit songs' tags (MP3 and FLAC), rate songs with stars, and
+- **Tidy up:** edit songs' tags and lyrics (MP3 and FLAC), rate songs with stars, and
   find duplicate songs to remove the extra copies.
 - **Listening stats:** top songs, artists and genres, and listening time.
 - **Top songs of the year:** a ranked playlist of your most played songs for
