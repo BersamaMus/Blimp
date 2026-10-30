@@ -242,6 +242,12 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     _errorMessage = null;
     _updatePlaybackEvent();
 
+    // Blimp: set before opening, as the duration can arrive before open()
+    // returns, and it's what sets off the seek.
+    if (request.initialPosition != null) {
+      _setPosition = request.initialPosition;
+    }
+
     if (request.audioSourceMessage is ConcatenatingAudioSourceMessage) {
       final audioSource =
           request.audioSourceMessage as ConcatenatingAudioSourceMessage;
@@ -259,7 +265,13 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     _mediaOpened = true;
 
     if (request.initialPosition != null) {
-      _setPosition = _position = request.initialPosition!;
+      _position = request.initialPosition!;
+    }
+    // Blimp: a duration unchanged from the last song sends no event, so the
+    // seek is made here if nothing has made it.
+    if (_setPosition != null && _player.state.duration.inSeconds > 0) {
+      unawaited(_player.seek(_setPosition!));
+      _setPosition = null;
     }
 
     _updatePlaybackEvent();

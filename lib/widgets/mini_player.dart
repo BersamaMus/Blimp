@@ -17,7 +17,7 @@ import 'song_options.dart';
 import 'volume_control.dart';
 
 /// The bar above the tabs showing the current song. Tap or swipe up to open
-/// the full player; swipe right for the next song, left for the previous;
+/// the full player; swipe left for the next song, right for the previous;
 /// tap or drag along the bar at the bottom to seek. Hidden until something is queued.
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
@@ -35,7 +35,8 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
   late final AnimationController _offset = AnimationController.unbounded(vsync: this);
   double _width = 1;
 
-  /// 1 while sliding off to the next song, -1 to the previous, else 0.
+  /// 1 while sliding off to the right for the previous song, -1 to the left
+  /// for the next, else 0.
   int _skipping = 0;
 
   @override
@@ -45,8 +46,8 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
     super.dispose();
   }
 
-  // Swiping right (dx > 0) goes to the next song, left to the previous.
-  bool _canGo(AudioPlayer player, int direction) => direction > 0 ? player.hasNext : player.hasPrevious;
+  // Swiping left (dx < 0) goes to the next song, right to the previous.
+  bool _canGo(AudioPlayer player, int direction) => direction < 0 ? player.hasNext : player.hasPrevious;
 
   void _onDragUpdate(DragUpdateDetails details, AudioPlayer player) {
     if (_skipping != 0) return;
@@ -71,7 +72,7 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
     _offset
         .animateTo(direction * _width, duration: const Duration(milliseconds: 180), curve: Curves.easeIn)
         .whenComplete(() async {
-          await (direction > 0 ? player.seekToNext() : player.seekToPrevious());
+          await (direction < 0 ? player.seekToNext() : player.seekToPrevious());
           _skipping = 0;
           if (!mounted) return;
           // The new song slides in from the other side.

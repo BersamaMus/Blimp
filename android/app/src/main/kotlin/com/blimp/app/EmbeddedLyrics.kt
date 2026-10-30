@@ -61,20 +61,35 @@ object EmbeddedLyrics {
     /** Just the lyrics. */
     fun read(source: ByteSource): String? = readTags(source).lyrics
 
+    /**
+     * Just the lyrics, for the tag editor, which replaces what it's told is there.
+     * So this throws if the tags are damaged or their lyrics can't be read,
+     * where [read] would say there are none, and saving would lose them.
+     */
+    fun readStrict(source: ByteSource): String? = parse(source, strict = true)?.let(::cleaned)?.lyrics
+
     fun readTags(source: ByteSource): EmbeddedTags {
-        val head = source.read(0, 12)
         val tags = try {
-            when {
-                head.startsWith("ID3") -> id3(source)
-                head.startsWith("fLaC") -> flac(source)?.let(::fromComments)
-                head.startsWith("OggS") -> ogg(source)?.let(::fromComments)
-                head.size >= 8 && String(head, 4, 4, Charsets.ISO_8859_1) == "ftyp" -> EmbeddedTags(lyrics = mp4(source))
-                else -> null
-            }
+            parse(source, strict = false)
         } catch (e: RuntimeException) {
             // A damaged tag: nothing rather than a crash.
             null
         } ?: return EmbeddedTags()
+        return cleaned(tags)
+    }
+
+    private fun parse(source: ByteSource, strict: Boolean): EmbeddedTags? {
+        val head = source.read(0, 12)
+        return when {
+            head.startsWith("ID3") -> id3(source, strict)
+            head.startsWith("fLaC") -> flac(source, strict)?.let(::fromComments)
+            head.startsWith("OggS") -> ogg(source)?.let(::fromComments)
+            head.size >= 8 && String(head, 4, 4, Charsets.ISO_8859_1) == "ftyp" -> EmbeddedTags(lyrics = mp4(source))
+            else -> null
+        }
+    }
+
+    private fun cleaned(tags: EmbeddedTags): EmbeddedTags {
         val lyrics = tags.lyrics?.replace("\r\n", "\n")?.replace('\r', '\n')?.trim()?.takeIf { it.isNotEmpty() }
         return tags.copy(lyrics = lyrics)
     }
@@ -99,11 +114,11 @@ object EmbeddedLyrics {
     // ---------------------------------------------------------------------
     // ID3v2 (MP3, and some others)
 
-    private fun id3(source: ByteSource): EmbeddedTags? {
+    private fun id3(source: ByteSource, strict: Boolean): EmbeddedTags? {
         val header = source.read(0, 10)
-        if (header.size < 10) return null
+        if (header.size < 10) return if (strict) error("Tag cut short") else null
         val version = header[3].toInt()
-        if (version != 3 && version != 4) return null
+        if (version != 3 && version != 4) return if (strict) error("Unknown tag version") else null
         val flags = header[5].toInt()
         val size = syncsafe(header, 6)
         var tag = source.read(10, minOf(size, MAX_TAG))
@@ -113,25 +128,39 @@ object EmbeddedLyrics {
             pos = if (version == 4) syncsafe(tag, 0) else int32(tag, 0) + 4
         }
 
+        // Version 2.4 sizes are syncsafe, but iTunes and others write them as
+        // plain numbers, so that's tried if they don't add up. The tag editor
+        // (desktop_library.dart) reads frames the same way.
+        val syncsafeSizes = version == 4 && (framesFit(tag, pos, true) || !framesFit(tag, pos, false))
+        if (strict && !framesFit(tag, pos, syncsafeSizes)) error("Damaged tag")
+
         var uslt: String? = null
         val txxx = mutableMapOf<String, String>()
         while (pos + 10 <= tag.size) {
             val id = String(tag, pos, 4, Charsets.ISO_8859_1)
             if (id[0] == '\u0000') break
-            val frameSize = if (version == 4) syncsafe(tag, pos + 4) else int32(tag, pos + 4)
+            val frameSize = if (syncsafeSizes) syncsafe(tag, pos + 4) else int32(tag, pos + 4)
             val formatFlags = tag[pos + 9].toInt()
             val start = pos + 10
             pos = start + frameSize
-            if (frameSize <= 0 || pos > tag.size) break
+            if (frameSize < 0 || pos > tag.size) {
+                if (strict) error("Damaged tag")
+                break
+            }
+            // Empty frames are valid, and other frames don't matter here.
+            if (frameSize == 0 || (id != "USLT" && id != "TXXX")) continue
 
             var data = tag.copyOfRange(start, start + frameSize)
+            val hidden = if (version == 4) formatFlags and 0x0C != 0 else formatFlags and 0xC0 != 0
+            if (hidden) { // compressed or encrypted
+                // A hidden user text frame may be lyrics too.
+                if (strict) error("Lyrics can't be read")
+                continue
+            }
             if (version == 4) {
-                if (formatFlags and 0x0C != 0) continue // compressed or encrypted
                 if (formatFlags and 0x40 != 0) data = data.copyOfRange(1, data.size)
                 if (formatFlags and 0x01 != 0) data = data.copyOfRange(4, data.size)
                 if (formatFlags and 0x02 != 0) data = unsynchronise(data)
-            } else if (formatFlags and 0xC0 != 0) {
-                continue // compressed or encrypted
             }
             if (data.isEmpty()) continue
 
@@ -156,6 +185,20 @@ object EmbeddedLyrics {
             trackGain = parseGain(txxx[GAIN_KEY]),
             releaseType = parseReleaseType(RELEASE_TYPE_KEYS.firstNotNullOfOrNull { txxx[it] }),
         )
+    }
+
+    /** Whether the frames from [start] all fit [tag], with sizes read one way or the other. */
+    private fun framesFit(tag: ByteArray, start: Int, syncsafeSizes: Boolean): Boolean {
+        var pos = start
+        while (pos + 10 <= tag.size) {
+            if (tag[pos] == 0.toByte()) break // Padding.
+            val id = String(tag, pos, 4, Charsets.ISO_8859_1)
+            if (!id.all { it in 'A'..'Z' || it in '0'..'9' }) return false
+            val frameSize = if (syncsafeSizes) syncsafe(tag, pos + 4) else int32(tag, pos + 4)
+            if (frameSize < 0 || frameSize > tag.size - pos - 10) return false
+            pos += 10 + frameSize
+        }
+        return true
     }
 
     /** ID3's "syncsafe" integers use 7 bits per byte. */
@@ -220,7 +263,7 @@ object EmbeddedLyrics {
     // ---------------------------------------------------------------------
     // FLAC, Ogg Vorbis and Opus: Vorbis comments
 
-    private fun flac(source: ByteSource): Map<String, String>? {
+    private fun flac(source: ByteSource, strict: Boolean): Map<String, String>? {
         var pos = 4L
         while (pos + 4 <= source.size) {
             val header = source.read(pos, 4)
@@ -229,7 +272,7 @@ object EmbeddedLyrics {
             val type = header[0].toInt() and 0x7F
             val length = (header[1].toInt() and 0xFF shl 16) or (header[2].toInt() and 0xFF shl 8) or
                 (header[3].toInt() and 0xFF)
-            if (type == 4) return vorbisComments(source.read(pos + 4, minOf(length, MAX_TAG)), 0)
+            if (type == 4) return vorbisComments(source.read(pos + 4, minOf(length, MAX_TAG)), 0, strict)
             pos += 4 + length
             if (last) return null
         }
@@ -281,9 +324,9 @@ object EmbeddedLyrics {
     }
 
     /** A Vorbis comment block at [from]: vendor, then "KEY=value" comments. */
-    private fun vorbisComments(b: ByteArray, from: Int): Map<String, String>? {
+    private fun vorbisComments(b: ByteArray, from: Int, strict: Boolean = false): Map<String, String>? {
         val vendor = int32le(b, from)
-        if (vendor < 0) return null
+        if (vendor < 0) return if (strict) error("Damaged comments") else null
         var pos = from + 4 + vendor
         val count = int32le(b, pos)
         pos += 4
@@ -292,7 +335,10 @@ object EmbeddedLyrics {
         val comments = mutableMapOf<String, String>()
         for (i in 0 until count) {
             val length = int32le(b, pos)
-            if (length < 0 || pos + 4 + length > b.size) break
+            if (length < 0 || pos + 4 + length > b.size) {
+                if (strict) error("Damaged comments")
+                break
+            }
             val comment = String(b, pos + 4, length, Charsets.UTF_8)
             pos += 4 + length
             val equals = comment.indexOf('=')

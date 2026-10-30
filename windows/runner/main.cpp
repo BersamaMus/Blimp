@@ -39,8 +39,20 @@ std::vector<std::wstring> OpenedPaths() {
 void SendToRunning(const std::vector<std::wstring>& paths) {
   HWND running = nullptr;
   for (int tries = 0; tries < 100 && !running; tries++) {
-    // Win32Window's class (kWindowClassName in win32_window.cpp).
-    running = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"Blimp");
+    // Win32Window's class (kWindowClassName in win32_window.cpp), marked as
+    // Blimp's by Background.
+    ::EnumWindows(
+        [](HWND window, LPARAM found) -> BOOL {
+          wchar_t name[64];
+          if (!::GetClassNameW(window, name, 64) ||
+              wcscmp(name, L"FLUTTER_RUNNER_WIN32_WINDOW") != 0 ||
+              !::GetPropW(window, Background::kWindowMark)) {
+            return TRUE;
+          }
+          *reinterpret_cast<HWND*>(found) = window;
+          return FALSE;
+        },
+        reinterpret_cast<LPARAM>(&running));
     if (!running) ::Sleep(100);
   }
   if (!running) return;

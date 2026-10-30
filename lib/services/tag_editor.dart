@@ -21,6 +21,7 @@ class TagChanges {
     this.year,
     this.track,
     this.disc,
+    this.lyrics,
   });
 
   final String? title;
@@ -32,7 +33,10 @@ class TagChanges {
   final String? track;
   final String? disc;
 
-  bool get isEmpty => [title, artist, album, albumArtist, genre, year, track, disc].every((v) => v == null);
+  /// Plain, or timed as LRC lines ("[01:23.45] words"), kept as written.
+  final String? lyrics;
+
+  bool get isEmpty => [title, artist, album, albumArtist, genre, year, track, disc, lyrics].every((v) => v == null);
 }
 
 /// Why tags couldn't be saved, as the editor tells the user.
@@ -142,7 +146,7 @@ abstract final class TagEditor {
     final reader = source.openSync();
     var version = 4;
     var audioStart = 0;
-    final frames = <({String id, Uint8List flags, Uint8List data})>[];
+    final frames = <Id3Frame>[];
     try {
       final header = reader.readSync(10);
       if (header.length == 10 && ascii.decode(header.sublist(0, 3), allowInvalid: true) == 'ID3') {
@@ -156,16 +160,8 @@ abstract final class TagEditor {
         final size = _syncsafe(header, 6);
         audioStart = 10 + size + (flags & 0x10 != 0 ? 10 : 0);
         final body = reader.readSync(size);
-        final data = ByteData.sublistView(body);
-        var first = 0;
-        if (flags & 0x40 != 0 && body.length >= 4) {
-          // An extended header, left out of the new tag.
-          first = version == 4 ? _syncsafe(body, 0) : data.getUint32(0) + 4;
-        }
-        // Version 2.4 sizes are syncsafe, but iTunes and others write them as
-        // plain numbers, so that's tried if they don't add up.
-        final read = _frames(body, first, syncsafe: version == 4) ??
-            (version == 4 ? _frames(body, first, syncsafe: false) : null);
+        // Any extended header is left out of the new tag.
+        final read = DesktopLibrary.id3Frames(body, version: version, flags: flags);
         // Never saved with frames missing: the rest of the tag would be lost.
         if (read == null) throw const TagEditException('This file’s tags look damaged, so Blimp left them alone.');
         frames.addAll(read);
@@ -198,6 +194,42 @@ abstract final class TagEditor {
     set(['TRCK'], changes.track);
     set(['TPOS'], changes.disc);
     set(version == 4 ? ['TDRC', 'TYER'] : ['TYER', 'TDRC'], changes.year);
+    if (changes.lyrics case final lyrics?) {
+      // Only the words the editor showed are replaced, keeping their
+      // language; lyrics in other languages stay. Emptied, the song has no
+      // lyrics, so they all go.
+      if (lyrics.trim().isEmpty) {
+        frames.removeWhere((f) => f.id == 'USLT');
+      } else {
+        final shown = DesktopLibrary.shownLyricsFrame(frames, version);
+        // "XXX" is ID3's language for unknown.
+        final (language, description) =
+            shown >= 0 ? DesktopLibrary.lyricsLabel(frames[shown], version) : (ascii.encode('XXX'), '');
+        final body = text(lyrics.trim());
+        final frame = (
+          id: 'USLT',
+          flags: Uint8List(2),
+          // The encoding, a language, a description, then the words.
+          data: Uint8List.fromList([
+            body[0],
+            ...language,
+            if (description.isNotEmpty) ...text(description).skip(1),
+            ...(version == 4 ? [0] : [0, 0]),
+            ...body.skip(1),
+          ]),
+        );
+        if (shown >= 0) {
+          frames[shown] = frame;
+        } else {
+          frames.add(frame);
+        }
+      }
+      // Lyrics some taggers keep in a user text frame go too, so the old
+      // ones can't turn up again in apps that read those.
+      frames.removeWhere(
+        (f) => f.id == 'TXXX' && DesktopLibrary.lyricsKeys.contains(DesktopLibrary.userTextFrame(f.data)?.$1.toUpperCase()),
+      );
+    }
 
     final tag = BytesBuilder();
     for (final frame in frames) {
@@ -223,28 +255,6 @@ abstract final class TagEditor {
   }
 
   static const _padding = 1024;
-
-  /// The frames in [body] from [at], with sizes [syncsafe] or not; null if
-  /// they don't fit the tag, as when read the wrong way.
-  static List<({String id, Uint8List flags, Uint8List data})>? _frames(
-    Uint8List body,
-    int at, {
-    required bool syncsafe,
-  }) {
-    final data = ByteData.sublistView(body);
-    final frames = <({String id, Uint8List flags, Uint8List data})>[];
-    while (at + 10 <= body.length) {
-      if (body[at] == 0) break; // Padding.
-      final id = ascii.decode(body.sublist(at, at + 4), allowInvalid: true);
-      if (!RegExp(r'^[A-Z0-9]{4}$').hasMatch(id)) return null;
-      final length = syncsafe ? _syncsafe(body, at + 4) : data.getUint32(at + 4);
-      final start = at + 10;
-      if (start + length > body.length) return null;
-      frames.add((id: id, flags: body.sublist(at + 8, at + 10), data: body.sublist(start, start + length)));
-      at = start + length;
-    }
-    return frames;
-  }
 
   static int _syncsafe(List<int> bytes, int at) =>
       (bytes[at] & 0x7F) << 21 | (bytes[at + 1] & 0x7F) << 14 | (bytes[at + 2] & 0x7F) << 7 | bytes[at + 3] & 0x7F;
@@ -341,6 +351,7 @@ abstract final class TagEditor {
     set(['DATE', 'YEAR'], changes.year);
     set(['TRACKNUMBER'], changes.track);
     set(['DISCNUMBER'], changes.disc);
+    set(DesktopLibrary.lyricsKeys, changes.lyrics);
 
     final block = BytesBuilder()
       ..add(_uint32le(utf8.encode(vendor).length))

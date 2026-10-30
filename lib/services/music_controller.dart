@@ -133,14 +133,24 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _playerStateSub = player.playerStateStream.listen((_) {
       _updateListening();
       _updateResume();
+      _updateQueuePosition();
       _updateFading();
       _updateHomeWidgets();
     });
+    // A pause from outside the app (the notification, headphones) arrives
+    // before the place it paused at, so that's noted when it comes.
+    _playbackEventSub = player.playbackEventStream.listen((_) {
+      if (player.playing) return;
+      _updateResume();
+      _saveQueuePosition();
+    }, onError: (Object _, StackTrace _) {});
     _seekSub = player.positionDiscontinuityStream.listen((discontinuity) {
       switch (discontinuity.reason) {
         case PositionDiscontinuityReason.seek:
           _seekFrom = discontinuity.previousEvent.currentIndex;
           _seekAt = DateTime.now();
+          // Moved while paused: kept, as the timer only runs while playing.
+          if (!player.playing) _saveQueuePosition();
         case PositionDiscontinuityReason.autoAdvance:
           // Followed on from the song before: fades in, if fading.
           _fadeInIndex = discontinuity.event.currentIndex;
@@ -196,11 +206,11 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   static const _searchHistoryPausedKey = 'search_history_paused';
   static const _visualizerStyleKey = 'visualizer_style';
   static const _visualizerEnabledKey = 'visualizer_enabled';
-  static const _visualizerArtworkColorsKey = 'visualizer_artwork_colors';
   static const _autoplayKey = 'autoplay';
   static const _queueKey = 'queue_song_ids';
   static const _queueIndexKey = 'queue_index';
   static const _unshuffledKey = 'queue_unshuffled_ids';
+  static const _queuePositionKey = 'queue_position';
   static const _playlistsKey = 'playlists';
   static const _smartPlaylistsKey = 'smart_playlists';
   static const _ratingsKey = 'song_ratings';
@@ -226,6 +236,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   );
   late final StreamSubscription<SequenceState> _sequenceSub;
   late final StreamSubscription<PlayerState> _playerStateSub;
+  late final StreamSubscription<PlaybackEvent> _playbackEventSub;
   SharedPreferences? _prefs;
 
   LibraryStatus status = LibraryStatus.loading;
@@ -307,7 +318,9 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     _commitListen(continuing: false);
     _listenTimer?.cancel();
+    _playbackEventSub.cancel();
     _resumeTimer?.cancel();
+    _queuePositionTimer?.cancel();
     _sleepTimer?.cancel();
     _sleepPositionSub?.cancel();
     _fadeTimer?.cancel();
@@ -621,10 +634,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   /// Whether the Visualizer tab draws anything; off saves battery.
   bool visualizerEnabled = true;
 
-  /// Whether the visualizer takes its colours from the song's artwork
-  /// rather than its genre.
-  bool visualizerArtworkColors = false;
-
   /// Whether similar songs keep playing once the queue runs out.
   bool autoplay = true;
 
@@ -709,7 +718,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     equalizerEnabled = prefs.getBool(_equalizerEnabledKey) ?? false;
     visualizerStyle = VisualizerStyle.values.asNameMap()[prefs.getString(_visualizerStyleKey)] ?? VisualizerStyle.bars;
     visualizerEnabled = prefs.getBool(_visualizerEnabledKey) ?? true;
-    visualizerArtworkColors = prefs.getBool(_visualizerArtworkColorsKey) ?? false;
     autoplay = prefs.getBool(_autoplayKey) ?? true;
     waveformSeekBar = prefs.getBool(_waveformSeekBarKey) ?? false;
     browseFolders = prefs.getBool(_browseFoldersKey) ?? false;
@@ -787,12 +795,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   void setVisualizerEnabled(bool enabled) {
     visualizerEnabled = enabled;
     _prefs?.setBool(_visualizerEnabledKey, enabled);
-    _notify({MusicAspect.settings});
-  }
-
-  void setVisualizerArtworkColors(bool enabled) {
-    visualizerArtworkColors = enabled;
-    _prefs?.setBool(_visualizerArtworkColorsKey, enabled);
     _notify({MusicAspect.settings});
   }
 
@@ -990,7 +992,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _searchHistoryPausedKey,
     _visualizerStyleKey,
     _visualizerEnabledKey,
-    _visualizerArtworkColorsKey,
     _autoplayKey,
     _hiddenFoldersKey,
     _minSongSecondsKey,
@@ -1033,6 +1034,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       };
     }
     await prefs.remove(_queueKey);
+    await prefs.remove(_queuePositionKey);
     await _log?.replaceWith(restored.listens);
     return restored;
   }
@@ -1059,6 +1061,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     // The app may be closed from the background without warning.
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
       _commitListen(continuing: true);
+      _saveQueuePosition();
     }
     // Back from system settings, where access may have been granted.
     if (state == AppLifecycleState.resumed && status == LibraryStatus.permissionDenied) {
@@ -2000,8 +2003,41 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Loads the queue saved by [_saveQueue], paused at the start of the song
-  /// that was playing. Songs since removed from the device are skipped; if
+  Timer? _queuePositionTimer;
+
+  /// Notes how far into the song the player is every half a minute while
+  /// it plays, and when it pauses, so the next launch carries on from there.
+  /// While it plays rather than on closing, which may come without warning;
+  /// no more often, as each save rewrites all the saved settings.
+  void _updateQueuePosition() {
+    if (player.playing && player.processingState == ProcessingState.ready) {
+      _queuePositionTimer ??= Timer.periodic(const Duration(seconds: 30), (_) => _saveQueuePosition());
+    } else {
+      _queuePositionTimer?.cancel();
+      _queuePositionTimer = null;
+      _saveQueuePosition();
+    }
+  }
+
+  /// Saves the song in the player and how far into it it is. The song goes
+  /// with it, so a place in one song is never used for another.
+  void _saveQueuePosition() {
+    final prefs = _prefs;
+    final song = currentSong;
+    // Not while a queue loads or a song is still on its way: the player's
+    // place is out of date then.
+    if (prefs == null || song == null || !_queueRestored.isCompleted || _settingQueue) return;
+    // Played to the end: next time it starts again, not a moment from its end.
+    if (player.processingState == ProcessingState.completed) {
+      prefs.remove(_queuePositionKey);
+      return;
+    }
+    if (player.processingState != ProcessingState.ready) return;
+    prefs.setStringList(_queuePositionKey, ['${song.id}', '${player.position.inMilliseconds}']);
+  }
+
+  /// Loads the queue saved by [_saveQueue], paused where the song that was
+  /// playing was left. Songs since removed from the device are skipped; if
   /// the one that was playing is gone, it starts from the next. Only the queued songs come back, not
   /// the rest of a long list that hadn't been queued yet.
   Future<void> _restoreQueue() async {
@@ -2040,7 +2076,11 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
         _unshuffled = [for (final id in ids) ?_scannedById[int.tryParse(id)]];
         _shufflingChanges.add(true);
       }
-      await _setQueue(sources, index: index);
+      final saved = prefs.getStringList(_queuePositionKey);
+      final at = saved != null && saved.length == 2 && saved[0] == '${current?.id}'
+          ? Duration(milliseconds: int.tryParse(saved[1]) ?? 0)
+          : null;
+      await _setQueue(sources, index: index, at: at);
     } catch (_) {
       // Couldn't load it: start empty, as before there was anything to restore.
     } finally {

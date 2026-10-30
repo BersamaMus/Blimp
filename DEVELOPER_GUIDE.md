@@ -140,7 +140,7 @@ At about 2,100 lines, this is the biggest file. It's split by
 | What | Files |
 |---|---|
 | Styles, genre colours, artwork colours (`artworkColors`, loaded by `MediaLibrary.getArtworkColors`), `AudioFrame`, the event stream | `lib/services/visualizer.dart` (`blimp/visualizer`) |
-| Drawing all seven styles (Particles and Starfield keep their motes and stars in `_Signal`), permission and "whole PC" notes | `lib/widgets/visualizer_view.dart` |
+| Drawing all five styles, permission and "whole PC" notes | `lib/widgets/visualizer_view.dart` |
 | Android capture (`android.media.audiofx.Visualizer`; needs RECORD_AUDIO) | `AppChannels.kt` |
 | Windows capture (process loopback on Windows 10 build 20348+, otherwise the whole PC) | `windows/runner/visualizer.cpp` |
 
@@ -157,7 +157,7 @@ At about 2,100 lines, this is the biggest file. It's split by
 
 | What | Files |
 |---|---|
-| Tag editor. Pure Dart MP3 (ID3v2.3/2.4) and FLAC writer; every other field in the file is copied across | `lib/services/tag_editor.dart`, `lib/screens/tag_editor_screen.dart` |
+| Tag editor. Pure Dart MP3 (ID3v2.3/2.4) and FLAC writer; every other field in the file is copied across. Lyrics go in a USLT frame or LYRICS comment (with several languages, only the first with words is shown and replaced; emptying the field removes them all), and the field shows only the file's own lyrics (`MediaLibrary.embeddedLyrics`: `getEmbeddedLyrics` in `AppChannels.kt`, `DesktopLibrary.embeddedLyrics` on Windows), never a .lrc file | `lib/services/tag_editor.dart`, `lib/screens/tag_editor_screen.dart` |
 | On Android, the file is copied out with `copySong`, edited, then written back with `writeSong` after the user agrees | `MainActivity.kt` (`blimp/files`), `MediaLibrary.writeWithAccess` |
 | Finding duplicates | `lib/services/duplicates.dart`, `lib/screens/duplicates_screen.dart` |
 | Throwing files away | Android: `trashSongs` in `MainActivity.kt`. Windows: `windows/runner/recycle_bin.cpp` (`blimp/recycle_bin`) |
@@ -219,6 +219,7 @@ Each feature is a pair: a C++ file in `windows/runner/` and a Dart file in
 | Visualizer capture | `visualizer.cpp` | `visualizer.dart` |
 | Remembering window size and position (registry `HKCU\Software\Blimp\Blimp`) | `window_placement.cpp` | — |
 | Compact player that stays on top | (`setCompact` on `blimp/window`) | `lib/widgets/compact_player.dart` |
+| Window title shows the song playing | (`setTitle` on `blimp/window`) | `lib/services/desktop_window.dart` |
 | Keyboard shortcuts | — | `lib/widgets/desktop_shortcuts.dart` |
 | Zooming the UI with the window height | — | `lib/widgets/window_scale.dart` |
 | Volume slider | — | `lib/widgets/volume_control.dart` |
@@ -231,7 +232,7 @@ Each feature is a pair: a C++ file in `windows/runner/` and a Dart file in
 
 | Channel | Dart | Android | Windows |
 |---|---|---|---|
-| `blimp/media` | `media_library.dart` | `AppChannels.kt`: getSongs, getArtwork, getAudioFormat, getFileInfo, getWaveform, openFolder, getLyrics, getGain, getReleaseTypes, getHiRes, shareSong | — (handled in `DesktopLibrary`) |
+| `blimp/media` | `media_library.dart` | `AppChannels.kt`: getSongs, getArtwork, getAudioFormat, getFileInfo, getWaveform, openFolder, getLyrics, getEmbeddedLyrics, getGain, getReleaseTypes, getHiRes, shareSong | — (handled in `DesktopLibrary`) |
 | `blimp/files` | `device_files.dart`, `media_library.dart`, `tag_editor.dart` | `MainActivity.kt`: save, open, restart, copySong, writeSong, trashSongs | — (`file_selector`) |
 | `blimp/widgets` | `home_widgets.dart` | `AppChannels.kt`: update, clear, setColors, takeRequest; calls `request` | — |
 | `blimp/open` | `open_files.dart` | `AppChannels.kt`: takeOpened; calls `opened` | `open_files.cpp` |
@@ -259,7 +260,7 @@ Catch `MissingPluginException` on the platform that doesn't have it.
 - Library and history: `liked_song_ids` (favourites; the key is still
   called "liked"), `history_song_ids`, `play_counts`, `song_ratings`,
   `resume_points`, `recent_searches`, `hidden_folders`, `min_song_seconds`
-- Queue: `queue_song_ids`, `queue_index`, `queue_unshuffled_ids`
+- Queue: `queue_song_ids`, `queue_index`, `queue_unshuffled_ids`, `queue_position` (the song playing and how far into it)
 - Playlists: `playlists`, `smart_playlists`
 - Settings: `seek_seconds`, `skip_silence`, `waveform_seek_bar`,
   `library_browse_folders`, `equalizer_enabled`, `equalizer_gains`,

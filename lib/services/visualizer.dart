@@ -12,9 +12,7 @@ enum VisualizerStyle {
   mirror('Mirror', Icons.align_vertical_center_rounded),
   wave('Wave', Icons.waves_rounded),
   radial('Radial', Icons.blur_circular_rounded),
-  pulse('Pulse', Icons.radio_button_checked_rounded),
-  particles('Particles', Icons.bubble_chart_rounded),
-  starfield('Starfield', Icons.auto_awesome_rounded);
+  pulse('Pulse', Icons.radio_button_checked_rounded);
 
   const VisualizerStyle(this.label, this.icon);
 

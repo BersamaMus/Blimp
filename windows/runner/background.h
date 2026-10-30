@@ -22,6 +22,10 @@ class Background {
   // one's window back instead.
   static constexpr UINT kShowMessage = WM_APP + 4;
 
+  // A property on Blimp's window, to tell it from other Flutter apps' when
+  // looking for it: its title shows the song playing, so can't be used.
+  static constexpr const wchar_t* kWindowMark = L"Blimp.Window";
+
   // Posted to go into the compact player (WPARAM 1) or out of it (0): done
   // after replying to Dart, not inside its call, where resizing the window
   // stalls until something else happens.

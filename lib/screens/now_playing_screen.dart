@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:just_audio/just_audio.dart';
 
@@ -257,11 +258,16 @@ class _PlayerBodyState extends State<_PlayerBody> {
                 style: textTheme.titleMedium?.copyWith(color: AppColors.textSecondary, fontWeight: FontWeight.w400),
               ),
             ),
-            if (album?.title ?? song.album case final albumTitle? when albumTitle.isNotEmpty)
+            // The album name with the year it came out, or just the year when there's no album.
+            if ([
+                  if (album?.title ?? song.album case final title? when title.isNotEmpty) title,
+                  ?(song.year ?? album?.year)?.toString(),
+                ].join(' • ')
+                case final albumLine when albumLine.isNotEmpty)
               GestureDetector(
                 onTap: album == null || album.isSingle ? null : () => openPage(CollectionScreen.album(album)),
                 child: MarqueeText(
-                  albumTitle,
+                  albumLine,
                   style: textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary.withValues(alpha: 0.8)),
                 ),
               ),
@@ -1108,6 +1114,10 @@ class _PlayerSheetState extends State<_PlayerSheet> with TickerProviderStateMixi
   /// Whether the Lyrics tab is showing; opened on it, it's there from the start.
   late bool _hadLyrics = widget.initialTab == 2;
 
+  /// Keeps the list and its place when the song changes, and lets the Up next
+  /// tab scroll it. Null while another tab is showing.
+  final _upNext = GlobalKey<_UpNextListState>();
+
   @override
   void dispose() {
     _tabs?.dispose();
@@ -1142,6 +1152,9 @@ class _PlayerSheetState extends State<_PlayerSheet> with TickerProviderStateMixi
               controller: tabs,
               indicatorSize: TabBarIndicatorSize.label,
               labelStyle: const TextStyle(fontWeight: FontWeight.w700),
+              onTap: (tab) {
+                if (tab == 0) _upNext.currentState?.scrollToCurrent();
+              },
               tabs: [
                 const Tab(text: 'Up next'),
                 const Tab(text: 'Visualizer'),
@@ -1152,7 +1165,7 @@ class _PlayerSheetState extends State<_PlayerSheet> with TickerProviderStateMixi
               child: TabBarView(
                 controller: tabs,
                 children: [
-                  const _UpNextList(),
+                  _UpNextList(key: _upNext),
                   const VisualizerView(),
                   if (_hadLyrics) lyrics == null ? const SizedBox.shrink() : LyricsView(lyrics: lyrics),
                 ],
@@ -1248,9 +1261,88 @@ class _SheetControls extends StatelessWidget {
 }
 
 /// The queue in play order, then autoplay's switch with its songs under it.
-/// Only the user's own songs can be reordered, shuffled or not.
-class _UpNextList extends StatelessWidget {
-  const _UpNextList();
+/// Only the user's own songs can be reordered, shuffled or not. Opens scrolled
+/// to the song that's playing.
+class _UpNextList extends StatefulWidget {
+  const _UpNextList({super.key});
+
+  @override
+  State<_UpNextList> createState() => _UpNextListState();
+}
+
+class _UpNextListState extends State<_UpNextList> {
+  final _scroll = ScrollController();
+
+  /// The rows built at the moment.
+  final _rows = <_QueueRowState>{};
+
+  /// Kept from when the first row was on screen, since it may not be later.
+  double _firstRowTop = 0;
+  double _rowHeight = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => scrollToCurrent());
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// The row of the song at [index] in the list, if it's built. A row being
+  /// dragged is also built outside the list, and isn't that row.
+  RenderBox? _rowBox(int index) {
+    for (final row in _rows) {
+      final box = row.context.findRenderObject() as RenderBox?;
+      if (row.widget.index == index && box != null && RenderAbstractViewport.maybeOf(box) != null) return box;
+    }
+    return null;
+  }
+
+  /// Brings the playing song into view. A long queue only builds the rows on
+  /// screen, so it first jumps to about where the song is, worked out from
+  /// the first row, then lines it up once it's built.
+  void scrollToCurrent() {
+    if (!mounted || !_scroll.hasClients) return;
+    final state = MusicScope.read(context).player.sequenceState;
+    final current = state.currentSource;
+    if (current == null) return;
+    final index = state.effectiveSequence.indexOf(current);
+    final first = _rowBox(0);
+    if (first != null) {
+      // Where the list would be scrolled to with the first song at the top.
+      _firstRowTop = RenderAbstractViewport.of(first).getOffsetToReveal(first, 0).offset;
+      _rowHeight = first.size.height;
+    }
+    if (_rowBox(index) != null) return _alignRow(index);
+    if (_rowHeight > 0) {
+      final estimate = _firstRowTop + index * _rowHeight - _scroll.position.viewportDimension * 0.3;
+      _scroll.jumpTo(estimate.clamp(0, _scroll.position.maxScrollExtent));
+    }
+    // The jump may not have moved anything, so ask for the frame.
+    WidgetsBinding.instance
+      ..addPostFrameCallback((_) => _alignRow(index))
+      ..ensureVisualUpdate();
+  }
+
+  void _alignRow(int index) {
+    final row = _rowBox(index);
+    if (row == null || !mounted || !_scroll.hasClients) return;
+    // Not Scrollable.ensureVisible: that would also move the sheet's tabs,
+    // taking over a swipe that's passing through this one.
+    final target = RenderAbstractViewport.of(row)
+        .getOffsetToReveal(row, 0.3)
+        .offset
+        .clamp(0.0, _scroll.position.maxScrollExtent);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _scroll.jumpTo(target);
+    } else {
+      _scroll.animateTo(target, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1285,33 +1377,38 @@ class _UpNextList extends StatelessWidget {
           child: const Icon(Icons.delete_outline),
         ),
         onDismissed: (_) => player.removeAudioSourceAt(order[i]),
-        child: Material(
-          color: isCurrent ? AppColors.accentFaint : Colors.transparent,
-          child: ListTile(
-            onTap: () => player.seek(Duration.zero, index: order[i]),
-            leading: SongArtwork(songId: song.id, size: 48, radius: 10),
-            title: Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: textTheme.bodyLarge?.copyWith(color: isCurrent ? AppColors.accent : null),
+        child: _QueueRow(
+          rows: _rows,
+          index: i,
+          child: Material(
+            color: isCurrent ? AppColors.accentFaint : Colors.transparent,
+            child: ListTile(
+              onTap: () => player.seek(Duration.zero, index: order[i]),
+              leading: SongArtwork(songId: song.id, size: 48, radius: 10),
+              title: Text(
+                song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodyLarge?.copyWith(color: isCurrent ? AppColors.accent : null),
+              ),
+              subtitle: HiResLine(
+                hiRes: music.isHiRes(song),
+                line: Text(song.artistName, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+              trailing: !reorderable
+                  ? null
+                  : ReorderableDragStartListener(
+                      index: i,
+                      child: const Icon(Icons.drag_handle, color: AppColors.textSecondary),
+                    ),
             ),
-            subtitle: HiResLine(
-              hiRes: music.isHiRes(song),
-              line: Text(song.artistName, maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
-            trailing: !reorderable
-                ? null
-                : ReorderableDragStartListener(
-                    index: i,
-                    child: const Icon(Icons.drag_handle, color: AppColors.textSecondary),
-                  ),
           ),
         ),
       );
     }
 
     return ReorderableListView.builder(
+      scrollController: _scroll,
       buildDefaultDragHandles: false,
       header: Align(
         alignment: Alignment.centerRight,
@@ -1340,6 +1437,36 @@ class _UpNextList extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A row of the queue, keeping itself in [rows] while it's built so the list
+/// can find it. Not a GlobalKey: a row being dragged is built twice at once.
+class _QueueRow extends StatefulWidget {
+  const _QueueRow({required this.rows, required this.index, required this.child});
+
+  final Set<_QueueRowState> rows;
+  final int index;
+  final Widget child;
+
+  @override
+  State<_QueueRow> createState() => _QueueRowState();
+}
+
+class _QueueRowState extends State<_QueueRow> {
+  @override
+  void initState() {
+    super.initState();
+    widget.rows.add(this);
+  }
+
+  @override
+  void dispose() {
+    widget.rows.remove(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Saves the user's queue (not autoplay's songs) as a new playlist.
