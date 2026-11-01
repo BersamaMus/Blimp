@@ -18,8 +18,8 @@ Blimp plays the music already on your device: no accounts, no ads, and it works 
   <img src="docs/img/phone-home.jpg" width="19%" alt="Blimp on Android: Home">
   <img src="docs/img/phone-player.jpg" width="19%" alt="Blimp on Android: now playing">
   <img src="docs/img/phone-visualizer.jpg" width="19%" alt="Blimp on Android: visualizer">
-  <img src="docs/img/phone-library.png" width="19%" alt="Blimp on Android: library">
-  <img src="docs/img/phone-queue.png" width="19%" alt="Blimp on Android: queue">
+  <img src="docs/img/phone-library.jpg" width="19%" alt="Blimp on Android: library">
+  <img src="docs/img/phone-queue.jpg" width="19%" alt="Blimp on Android: queue">
 </p>
 
 ## Download
@@ -87,11 +87,3 @@ Windows may warn that the installer is from an unknown publisher. Click
 
 - Android Auto, home screen widgets, lock screen controls, and a sleep timer.
 - Open songs with Blimp from a file manager or another app.
-
-## License
-
-Copyright © 2026 Mustaqim. All rights reserved.
-
-You're welcome to read the source code here. You may not copy, modify or
-redistribute it without permission. The bundled package in
-`packages/just_audio_background` keeps its own license.
