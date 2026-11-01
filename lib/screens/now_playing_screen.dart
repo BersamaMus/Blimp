@@ -8,11 +8,11 @@ import 'package:flutter/scheduler.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../services/desktop_library.dart';
-import '../services/lyrics.dart';
 import '../services/media_library.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
 import '../widgets/add_to_playlist.dart';
+import '../widgets/drag_to_close.dart';
 import '../widgets/lyrics_view.dart';
 import '../widgets/marquee_text.dart';
 import '../widgets/shelf.dart';
@@ -40,7 +40,7 @@ Future<void> openNowPlaying(BuildContext context) {
       settings: const RouteSettings(name: nowPlayingRoute),
       // Hides and pauses the screens underneath while the player covers
       // them; they're shown again while it's dragged down (see
-      // _NowPlayingScreenState._setCovering).
+      // DragToClose).
       opaque: true,
       transitionDuration: const Duration(milliseconds: 350),
       reverseTransitionDuration: const Duration(milliseconds: 250),
@@ -63,42 +63,7 @@ class NowPlayingScreen extends StatefulWidget {
   State<NowPlayingScreen> createState() => _NowPlayingScreenState();
 }
 
-class _NowPlayingScreenState extends State<NowPlayingScreen> with SingleTickerProviderStateMixin {
-  // Dragging the page down past a threshold dismisses it, like a sheet.
-  late final AnimationController _settle = AnimationController(vsync: this, duration: const Duration(milliseconds: 200))
-    ..addListener(() => setState(() => _dragOffset = _settleFrom * (1 - _settle.value)))
-    ..addStatusListener((status) {
-      if (status == AnimationStatus.completed) _setCovering(true);
-    });
-  double _dragOffset = 0;
-  double _settleFrom = 0;
-
-  @override
-  void dispose() {
-    _settle.dispose();
-    super.dispose();
-  }
-
-  /// Whether the screens underneath are hidden. Covered, they're neither
-  /// painted nor animated (a playing song's bars in a list behind would
-  /// otherwise redraw the whole screen every frame); dragging the player
-  /// down shows them again. The route does the same around its own
-  /// open and close animations.
-  void _setCovering(bool covering) {
-    final route = ModalRoute.of(context);
-    if (route == null || !route.isCurrent || route.animation?.status != AnimationStatus.completed) return;
-    if (route.overlayEntries.isNotEmpty) route.overlayEntries.first.opaque = covering;
-  }
-
-  void _onDragEnd(DragEndDetails details) {
-    if (_dragOffset > 140 || (details.primaryVelocity ?? 0) > 700) {
-      Navigator.pop(context);
-    } else {
-      _settleFrom = _dragOffset;
-      _settle.forward(from: 0);
-    }
-  }
-
+class _NowPlayingScreenState extends State<NowPlayingScreen> {
   @override
   Widget build(BuildContext context) {
     final music = MusicScope.of(context, const {MusicAspect.playback});
@@ -110,36 +75,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> with SingleTickerPr
       return const SizedBox.shrink();
     }
 
-    return GestureDetector(
-      onVerticalDragStart: (_) => _setCovering(false),
-      onVerticalDragUpdate: (d) => setState(() => _dragOffset = (_dragOffset + d.delta.dy).clamp(0, double.infinity)),
-      onVerticalDragEnd: _onDragEnd,
-      child: Transform.translate(
-        offset: Offset(0, _dragOffset),
-        child: FutureBuilder<Color?>(
-          future: MediaLibrary.getDominantColor(song.id),
-          builder: (context, snapshot) => TweenAnimationBuilder<Color?>(
-            tween: ColorTween(end: backdropColor(snapshot.data)),
-            duration: const Duration(milliseconds: 500),
-            builder: (context, color, child) => DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [color!, Color.lerp(color, Colors.black, 0.75)!],
-                ),
+    return DragToClose(
+      child: FutureBuilder<Color?>(
+        future: MediaLibrary.getDominantColor(song.id),
+        builder: (context, snapshot) => TweenAnimationBuilder<Color?>(
+          tween: ColorTween(end: backdropColor(snapshot.data)),
+          duration: const Duration(milliseconds: 500),
+          builder: (context, color, child) => DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [color!, Color.lerp(color, Colors.black, 0.75)!],
               ),
-              child: child,
             ),
-            child: Material(
-              type: MaterialType.transparency,
-              child: SafeArea(
-                child: LayoutBuilder(
-                  builder: (context, constraints) => _PlayerBody(
-                    song: song,
-                    wide: DesktopFrame.showsTabs(context) &&
-                        constraints.maxWidth > constraints.maxHeight * 1.2,
-                  ),
+            child: child,
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) => _PlayerBody(
+                  song: song,
+                  wide: DesktopFrame.showsTabs(context) &&
+                      constraints.maxWidth > constraints.maxHeight * 1.2,
                 ),
               ),
             ),
@@ -172,19 +131,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
   Widget _panelView(int panel) => switch (panel) {
     0 => const _UpNextList(),
     1 => const VisualizerView(),
-    _ => FutureBuilder<Lyrics?>(
-      key: ValueKey(widget.song.id),
-      future: MediaLibrary.getLyrics(widget.song),
-      builder: (context, snapshot) => switch (snapshot.data) {
-        final lyrics? => LyricsView(lyrics: lyrics),
-        // Moved on to a song without any.
-        null when snapshot.connectionState == ConnectionState.done => const MessageView(
-          icon: Icons.lyrics_outlined,
-          text: 'No lyrics for this song.',
-        ),
-        null => const SizedBox.shrink(),
-      },
-    ),
+    _ => SongLyricsView(key: ValueKey(widget.song.id), song: widget.song),
   };
 
   @override
@@ -220,7 +167,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
       ),
     );
 
-    // Artwork: swipe sideways to change song.
+    // Artwork: on a phone, swipe sideways to change song.
     final artwork = Center(
       child: Hero(
         tag: 'now-playing-art',
@@ -303,37 +250,32 @@ class _PlayerBodyState extends State<_PlayerBody> {
       SizedBox(height: wide ? 24 : 12),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
-        // Lyrics only when the song has some.
-        child: FutureBuilder<Lyrics?>(
-          key: ValueKey(song.id),
-          future: MediaLibrary.getLyrics(song),
-          builder: (context, snapshot) => Row(
-            children: [
-              for (final (i, (icon, label)) in [
-                (Icons.queue_music_rounded, 'Up next'),
-                (Icons.graphic_eq_rounded, 'Visualizer'),
-                if (snapshot.data != null) (Icons.lyrics_outlined, 'Lyrics'),
-              ].indexed) ...[
-                if (i > 0) const SizedBox(width: 10),
-                Expanded(
-                  child: TextButton.icon(
-                    style: TextButton.styleFrom(
-                      foregroundColor: panel == i ? AppColors.accent : Colors.white,
-                      backgroundColor: panel == i ? AppColors.accentFaint : const Color(0x14FFFFFF),
-                      minimumSize: const Size(0, 44),
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                    ),
-                    // Pressed again, the open one closes.
-                    onPressed: wide
-                        ? () => setState(() => _panel = _panel == i ? null : i)
-                        : () => _showQueueSheet(context, i),
-                    icon: Icon(icon, size: 20),
-                    label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        child: Row(
+          children: [
+            for (final (i, (icon, label)) in const [
+              (Icons.queue_music_rounded, 'Up next'),
+              (Icons.graphic_eq_rounded, 'Visualizer'),
+              (Icons.lyrics_outlined, 'Lyrics'),
+            ].indexed) ...[
+              if (i > 0) const SizedBox(width: 10),
+              Expanded(
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: panel == i ? AppColors.accent : Colors.white,
+                    backgroundColor: panel == i ? AppColors.accentFaint : const Color(0x14FFFFFF),
+                    minimumSize: const Size(0, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                   ),
+                  // Pressed again, the open one closes.
+                  onPressed: wide
+                      ? () => setState(() => _panel = _panel == i ? null : i)
+                      : () => _showQueueSheet(context, i),
+                  icon: Icon(icon, size: 20),
+                  label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
                 ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
       const SizedBox(height: 4),
@@ -490,8 +432,10 @@ class _SwipeableArtworkState extends State<_SwipeableArtwork> with SingleTickerP
         // Off-screen for the artwork means its own width plus the margin.
         _width = constraints.maxWidth + 48;
         return GestureDetector(
-          onHorizontalDragUpdate: _onDragUpdate,
-          onHorizontalDragEnd: _onDragEnd,
+          // Phones only: a mouse has the next and previous buttons, and
+          // dragging across the artwork by accident shouldn't change song.
+          onHorizontalDragUpdate: isDesktop ? null : _onDragUpdate,
+          onHorizontalDragEnd: isDesktop ? null : _onDragEnd,
           child: AnimatedBuilder(
             animation: _offset,
             builder: (context, child) {
@@ -1095,9 +1039,8 @@ void _showQueueSheet(BuildContext context, int initialTab) {
   );
 }
 
-/// Up next, the visualizer and, when the playing song has some, its lyrics,
-/// as tabs under the sheet's controls. The Lyrics tab comes and goes as the
-/// song changes; the tab in view stays put where it can.
+/// Up next, the visualizer and the playing song's lyrics, as tabs under the
+/// sheet's controls.
 class _PlayerSheet extends StatefulWidget {
   const _PlayerSheet({required this.initialTab});
 
@@ -1107,12 +1050,8 @@ class _PlayerSheet extends StatefulWidget {
   State<_PlayerSheet> createState() => _PlayerSheetState();
 }
 
-class _PlayerSheetState extends State<_PlayerSheet> with TickerProviderStateMixin {
-  TabController? _tabs;
-  late int _index = widget.initialTab;
-
-  /// Whether the Lyrics tab is showing; opened on it, it's there from the start.
-  late bool _hadLyrics = widget.initialTab == 2;
+class _PlayerSheetState extends State<_PlayerSheet> with SingleTickerProviderStateMixin {
+  late final _tabs = TabController(length: 3, initialIndex: widget.initialTab, vsync: this);
 
   /// Keeps the list and its place when the song changes, and lets the Up next
   /// tab scroll it. Null while another tab is showing.
@@ -1120,60 +1059,37 @@ class _PlayerSheetState extends State<_PlayerSheet> with TickerProviderStateMixi
 
   @override
   void dispose() {
-    _tabs?.dispose();
+    _tabs.dispose();
     super.dispose();
-  }
-
-  TabController _controllerFor(int length) {
-    final tabs = _tabs;
-    if (tabs != null && tabs.length == length) return tabs;
-    tabs?.dispose();
-    return _tabs = TabController(length: length, initialIndex: _index.clamp(0, length - 1), vsync: this)
-      ..addListener(() => _index = _tabs!.index);
   }
 
   @override
   Widget build(BuildContext context) {
     final song = MusicScope.of(context, const {MusicAspect.playback}).currentSong;
-    return FutureBuilder<Lyrics?>(
-      // Per song, so one song's lyrics never show for the next.
-      key: ValueKey(song?.id),
-      future: song == null ? null : MediaLibrary.getLyrics(song),
-      builder: (context, snapshot) {
-        final lyrics = snapshot.data;
-        // While the next song's lyrics load, the tabs stay as they were.
-        final loading = snapshot.connectionState == ConnectionState.waiting;
-        if (!loading) _hadLyrics = lyrics != null;
-        final tabs = _controllerFor(_hadLyrics ? 3 : 2);
-        return Column(
-          children: [
-            const _SheetControls(),
-            TabBar(
-              controller: tabs,
-              indicatorSize: TabBarIndicatorSize.label,
-              labelStyle: const TextStyle(fontWeight: FontWeight.w700),
-              onTap: (tab) {
-                if (tab == 0) _upNext.currentState?.scrollToCurrent();
-              },
-              tabs: [
-                const Tab(text: 'Up next'),
-                const Tab(text: 'Visualizer'),
-                if (_hadLyrics) const Tab(text: 'Lyrics'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
-                controller: tabs,
-                children: [
-                  _UpNextList(key: _upNext),
-                  const VisualizerView(),
-                  if (_hadLyrics) lyrics == null ? const SizedBox.shrink() : LyricsView(lyrics: lyrics),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
+    return Column(
+      children: [
+        const _SheetControls(),
+        TabBar(
+          controller: _tabs,
+          indicatorSize: TabBarIndicatorSize.label,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w700),
+          onTap: (tab) {
+            if (tab == 0) _upNext.currentState?.scrollToCurrent();
+          },
+          tabs: const [Tab(text: 'Up next'), Tab(text: 'Visualizer'), Tab(text: 'Lyrics')],
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabs,
+            children: [
+              _UpNextList(key: _upNext),
+              const VisualizerView(),
+              // Per song, so one song's lyrics never show for the next.
+              if (song == null) const SizedBox.shrink() else SongLyricsView(key: ValueKey(song.id), song: song),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

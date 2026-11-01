@@ -22,6 +22,7 @@ class TagChanges {
     this.track,
     this.disc,
     this.lyrics,
+    this.cover,
   });
 
   final String? title;
@@ -36,7 +37,11 @@ class TagChanges {
   /// Plain, or timed as LRC lines ("[01:23.45] words"), kept as written.
   final String? lyrics;
 
-  bool get isEmpty => [title, artist, album, albumArtist, genre, year, track, disc, lyrics].every((v) => v == null);
+  /// A JPEG to add as the front cover, for a song without one.
+  final Uint8List? cover;
+
+  bool get isEmpty =>
+      cover == null && [title, artist, album, albumArtist, genre, year, track, disc, lyrics].every((v) => v == null);
 }
 
 /// Why tags couldn't be saved, as the editor tells the user.
@@ -62,8 +67,10 @@ abstract final class TagEditor {
 
   /// Saves [changes] into [song]'s file. On a phone, Android asks the user
   /// first; false if they said no. Throws [TagEditException] if it can't be
-  /// done.
-  static Future<bool> save(Song song, TagChanges changes) async {
+  /// done. [keepDate] leaves the file's date as it was on desktop, where it's
+  /// when the song was added, so saving in the background doesn't reorder
+  /// Recently Added.
+  static Future<bool> save(Song song, TagChanges changes, {bool keepDate = false}) async {
     if (changes.isEmpty) return true;
     if (isDesktop) {
       final path = song.path;
@@ -71,8 +78,10 @@ abstract final class TagEditor {
       final edited = '$path.blimp-edit';
       await _edit(path, edited, changes);
       try {
+        final date = keepDate ? await File(path).lastModified() : null;
         // Replaces the old file in one go.
         await File(edited).rename(path);
+        if (date != null) await File(path).setLastModified(date);
       } on FileSystemException {
         await _delete(edited);
         throw const TagEditException("Couldn't save the file. If it's playing, try again once it isn't.");
@@ -194,6 +203,15 @@ abstract final class TagEditor {
     set(['TRCK'], changes.track);
     set(['TPOS'], changes.disc);
     set(version == 4 ? ['TDRC', 'TYER'] : ['TYER', 'TDRC'], changes.year);
+    if (changes.cover case final cover?) {
+      frames.add((
+        id: 'APIC',
+        flags: Uint8List(2),
+        // The encoding, the image type, "front cover", no description, then
+        // the picture.
+        data: Uint8List.fromList([0, ...ascii.encode(_coverType), 0, 3, 0, ...cover]),
+      ));
+    }
     if (changes.lyrics case final lyrics?) {
       // Only the words the editor showed are replaced, keeping their
       // language; lyrics in other languages stay. Emptied, the song has no
@@ -255,6 +273,8 @@ abstract final class TagEditor {
   }
 
   static const _padding = 1024;
+
+  static const _coverType = 'image/jpeg';
 
   static int _syncsafe(List<int> bytes, int at) =>
       (bytes[at] & 0x7F) << 21 | (bytes[at + 1] & 0x7F) << 14 | (bytes[at + 2] & 0x7F) << 7 | bytes[at + 3] & 0x7F;
@@ -368,6 +388,20 @@ abstract final class TagEditor {
       blocks[at] = comment;
     } else {
       blocks.add(comment);
+    }
+    if (changes.cover case final cover?) {
+      final picture = BytesBuilder()
+        // "Front cover", the image type, and no description.
+        ..add(_uint32(3))
+        ..add(_uint32(_coverType.length))
+        ..add(ascii.encode(_coverType))
+        ..add(_uint32(0))
+        // Width, height, colour depth and palette size, which readers take
+        // from the image itself when they're zero.
+        ..add(Uint8List(16))
+        ..add(_uint32(cover.length))
+        ..add(cover);
+      blocks.add((type: 6, data: picture.takeBytes()));
     }
     blocks.add((type: 1, data: Uint8List(_padding)));
 

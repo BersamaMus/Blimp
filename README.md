@@ -1,7 +1,7 @@
 # Blimp
 
 Blimp (Better Localized Music Player) is an offline music player for Android and Windows. 
-Blimp plays the music already on your device: no accounts, no ads, no internet.
+Blimp plays the music already on your device: no accounts, no ads, and it works offline.
 
 ## Screenshots
 
@@ -15,11 +15,11 @@ Blimp plays the music already on your device: no accounts, no ads, no internet.
 ### Android
 
 <p>
-  <img src="store_listing/screenshots/01_home.png" width="19%" alt="Blimp on Android: Home">
-  <img src="store_listing/screenshots/02_player.png" width="19%" alt="Blimp on Android: now playing">
-  <img src="store_listing/screenshots/03_visualizer.png" width="19%" alt="Blimp on Android: visualizer">
-  <img src="store_listing/screenshots/04_library.png" width="19%" alt="Blimp on Android: library">
-  <img src="store_listing/screenshots/05_queue.png" width="19%" alt="Blimp on Android: queue">
+  <img src="docs/img/phone-home.jpg" width="19%" alt="Blimp on Android: Home">
+  <img src="docs/img/phone-player.jpg" width="19%" alt="Blimp on Android: now playing">
+  <img src="docs/img/phone-visualizer.jpg" width="19%" alt="Blimp on Android: visualizer">
+  <img src="docs/img/phone-library.png" width="19%" alt="Blimp on Android: library">
+  <img src="docs/img/phone-queue.png" width="19%" alt="Blimp on Android: queue">
 </p>
 
 ## Download
@@ -40,6 +40,10 @@ Windows may warn that the installer is from an unknown publisher. Click
   when the lyrics time each word.
 - **Search your lyrics:** search finds songs by the words in them, and plays
   from the line they're sung on.
+- **Lyrics search:** when you ask, looks up a song, or your whole library, on
+  [LRCLIB](https://lrclib.net), picking synced lyrics first, then plain ones.
+  It only sends a song's title, artist, album and length, and keeps what it finds
+  inside Blimp. On Windows you can choose to save lyrics into your music files.
 - **Sound:** gapless playback, hi-res badges, volume normalisation, crossfade,
   an equalizer, skip silence, and playback speed.
 - **Library:** browse by songs, albums, artists, playlists, genres or folders.
@@ -62,7 +66,8 @@ Windows may warn that the installer is from an unknown publisher. Click
   play it, its all-time rank and how it sounds.
 - **Backups:** save your playlists, favourites, history, stats and settings to
   one file, and restore them on another device.
-- **Private:** Blimp never goes online and collects nothing.
+- **Private:** Blimp collects nothing, and only goes online if you search for
+  lyrics or, on Windows, for missing tags.
 
 ### On Windows
 
@@ -74,6 +79,9 @@ Windows may warn that the installer is from an unknown publisher. Click
 - Pauses when headphones are unplugged.
 - Keyboard shortcuts: Space plays and pauses, Ctrl+Left and Ctrl+Right skip,
   Ctrl+F searches.
+- Find missing tags, in Settings: lists MP3 and FLAC songs missing tags or
+  covers and fills them in with one click from iTunes Search and MusicBrainz,
+  leaving tags you already have.
 
 ### On Android
 

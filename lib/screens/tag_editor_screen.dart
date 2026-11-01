@@ -58,7 +58,7 @@ class _TagEditorScreenState extends State<TagEditorScreen> {
   Future<void> _loadLyrics() async {
     try {
       final text = await MediaLibrary.embeddedLyrics(widget.song) ?? '';
-      final fromLrc = text.isEmpty && await MediaLibrary.getLyrics(widget.song) != null;
+      final fromLrc = text.isEmpty && await MediaLibrary.ownLyrics(widget.song) != null;
       if (!mounted) return;
       setState(() {
         _lyricsInitial = text;
@@ -110,6 +110,8 @@ class _TagEditorScreenState extends State<TagEditorScreen> {
         if (mounted) setState(() => _saving = false);
         return;
       }
+      // Lyrics the user has written outrank any found online.
+      if (changes.lyrics != null) music.keepOwnLyrics(widget.song);
       MediaLibrary.forget(widget.song.id);
       // Read again, so the library shows the new tags.
       await music.load();

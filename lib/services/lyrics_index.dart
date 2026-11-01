@@ -50,6 +50,9 @@ class LyricsIndex {
 
   void put(Song song, String stamp, SongLyrics lyrics) => _songs[song.id] = (stamp: stamp, lyrics: lyrics);
 
+  /// Forgets what was read of [ids], so they're read again.
+  void forget(Iterable<int> ids) => ids.forEach(_songs.remove);
+
   /// Forgets songs not among [ids] (deleted, say), returning whether there
   /// were any, so the file doesn't keep growing.
   bool keepOnly(Set<int> ids) {
@@ -96,15 +99,24 @@ class LyricsIndex {
     };
   }
 
-  Future<void> save() async {
+  /// Saves one at a time, as each is written to the same temporary file.
+  Future<void> save() => _saved = _saved.then((_) => _write());
+
+  Future<void> _saved = Future.value();
+
+  Future<void> _write() async {
     final file = _file;
     if (file == null) return;
     final songs = _songs;
     // Written beside, then swapped in, so a crash midway loses nothing. Away
     // from the screen's thread, as the file runs to a few megabytes.
     await Isolate.run(() {
-      final temp = File('${file.path}.tmp')..writeAsStringSync(_encode(songs), flush: true);
-      temp.renameSync(file.path);
+      try {
+        final temp = File('${file.path}.tmp')..writeAsStringSync(_encode(songs), flush: true);
+        temp.renameSync(file.path);
+      } on FileSystemException {
+        // A full disk, say. It's all still in memory for the next save.
+      }
     });
   }
 }

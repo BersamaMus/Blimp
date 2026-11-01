@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'desktop_library.dart';
 import 'genres.dart';
 import 'lyrics.dart';
+import 'lyrics_finder.dart';
 import 'search_text.dart';
 import 'visualizer.dart';
 
@@ -390,17 +391,25 @@ class MediaLibrary {
 
   static final _lyrics = _LruCache<int, Future<Lyrics?>>(20);
 
-  /// The song's lyrics, from its tags or a .lrc file beside it; null if it
-  /// has none.
+  /// Lyrics found online, shown along with songs' own (see [bestLyrics]).
+  static FoundLyrics? found;
+
+  /// The song's lyrics, from its tags or a .lrc file beside it, or found
+  /// online; null if it has none.
   static Future<Lyrics?> getLyrics(Song song) {
     if (_lyrics[song.id] case final lyrics?) return lyrics;
-    final text = isDesktop
-        ? DesktopLibrary.lyrics(song)
-        : _channel.invokeMethod<String>('getLyrics', {'id': song.id});
-    return _lyrics[song.id] = text
+    return _lyrics[song.id] = ownLyrics(song)
+        .catchError((Object _) => null)
+        .then((own) => bestLyrics(own, found?.textOf(song.id)))
         .then((raw) => raw == null ? null : parseLyrics(raw))
         .catchError((Object _) => null);
   }
+
+  /// The lyrics that came with the song, from its tags or a .lrc file beside
+  /// it, not any found online. Not kept.
+  static Future<String?> ownLyrics(Song song) => isDesktop
+      ? DesktopLibrary.lyrics(song)
+      : _channel.invokeMethod<String>('getLyrics', {'id': song.id});
 
   /// Just the lyrics saved inside the song's file, as written, for the tag
   /// editor: not a .lrc file beside it, and not kept. Null if it has none;
@@ -410,12 +419,24 @@ class MediaLibrary {
     return _channel.invokeMethod<String>('getEmbeddedLyrics', {'id': song.id});
   }
 
-  /// The lyrics saved with each of [songs] (in its tags, or a .lrc file
-  /// beside it), as written, by song id; null for songs without any. Songs
-  /// whose files couldn't be opened (a card still being mounted, say) are
-  /// left out, to try again later, and it's null if none could be asked.
-  /// Not kept: for reading the whole library once, to search it.
+  /// Reads the song's lyrics afresh next time, as when new ones are found.
+  static void forgetLyrics(int id) => _lyrics.remove(id);
+
+  /// The lyrics of each of [songs] (as [getLyrics] finds them), as written,
+  /// by song id; null for songs without any. Songs whose files couldn't be
+  /// opened (a card still being mounted, say) are left out, to try again
+  /// later, and it's null if none could be asked. Not kept: for reading the
+  /// whole library once, to search it.
   static Future<Map<int, String?>?> readLyrics(List<Song> songs) async {
+    return switch (await _readOwnLyrics(songs)) {
+      final own? => {
+        for (final MapEntry(:key, :value) in own.entries) key: bestLyrics(value, found?.textOf(key)),
+      },
+      null => null,
+    };
+  }
+
+  static Future<Map<int, String?>?> _readOwnLyrics(List<Song> songs) async {
     if (isDesktop) return DesktopLibrary.lyricsOf(songs);
     try {
       final texts = await _channel.invokeMapMethod<String, String>('getLyricsBatch', {
