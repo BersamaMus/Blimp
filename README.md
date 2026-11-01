@@ -26,10 +26,12 @@ Blimp plays the music already on your device: no accounts, no ads, and it works 
 
 - **Windows 10 and 11:** get `Blimp-Setup.exe` from the
   [latest release](../../releases/latest).
-- **Android:** coming soon to Google Play.
+- **Android:** get `Blimp.apk` from the [latest release](../../releases/latest).
+  Coming to Google Play too.
 
 Windows may warn that the installer is from an unknown publisher. Click
-**More info**, then **Run anyway**.
+**More info**, then **Run anyway**. On Android, allow your browser or file
+manager to install unknown apps if it asks.
 
 ## Features
 
