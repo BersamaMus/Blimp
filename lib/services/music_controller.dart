@@ -19,6 +19,8 @@ import 'folders.dart';
 import 'home_widgets.dart';
 import 'listening_log.dart';
 import 'listening_stats.dart';
+import 'lyrics.dart';
+import 'lyrics_finder.dart';
 import 'lyrics_index.dart';
 import 'media_library.dart';
 import 'milestones.dart';
@@ -28,6 +30,7 @@ import 'resume_points.dart';
 import 'search_text.dart';
 import 'smart_playlists.dart';
 import 'song_dna.dart';
+import 'tag_editor.dart';
 import 'time_machine.dart';
 import 'visualizer.dart';
 
@@ -214,6 +217,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   static const _playlistsKey = 'playlists';
   static const _smartPlaylistsKey = 'smart_playlists';
   static const _ratingsKey = 'song_ratings';
+  static const _lyricsFinderKey = 'lyrics_finder';
+  static const _saveLyricsKey = 'lyrics_in_files';
   static const _hiddenFoldersKey = 'hidden_folders';
   static const _minSongSecondsKey = 'min_song_seconds';
   static const _speedKey = 'playback_speed';
@@ -294,6 +299,11 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
         _lyrics = await LyricsIndex.open();
       } on Object {
         // No folder to keep it in: lyrics just aren't searched.
+      }
+      try {
+        MediaLibrary.found = _found = await FoundLyrics.open();
+      } on Object {
+        // No folder to keep them in: lyrics just aren't looked for.
       }
       _log = await ListeningLog.open();
       await load();
@@ -1361,6 +1371,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       _indexingLyrics = false;
       _notify({MusicAspect.searches});
+      // Only now is it known which songs have lyrics of their own.
+      unawaited(_findLyrics());
     }
   }
 
@@ -1410,6 +1422,286 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     ]);
     _lyricSearch = (query, found);
     return found;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lyrics finder: looks up songs' lyrics on LRCLIB, one at a time in the
+  // background, once the user has turned it on, or just the one they ask
+  // for. Blimp's only use of the internet (see [LyricsFinder]).
+
+  FoundLyrics? _found;
+  LyricsFinder? _finder;
+
+  /// Whether the user has turned it on. Off until they do, and left out of
+  /// backups: going online is each device's own choice.
+  bool get lyricsFinderOn => _prefs?.getBool(_lyricsFinderKey) ?? false;
+
+  /// Whether songs are being looked up now.
+  bool get findingLyrics => _findingLyrics;
+  bool _findingLyrics = false;
+
+  /// Why the last search stopped early, if it did.
+  LyricsFinderProblem? get lyricsFinderProblem => _lyricsFinderProblem;
+  LyricsFinderProblem? _lyricsFinderProblem;
+
+  /// Songs with lyrics found so far.
+  int get foundLyricsCount => _found?.length ?? 0;
+
+  /// Songs left to look up in the search under way.
+  int get lyricsFinderLeft => _lyricsFinderLeft;
+  int _lyricsFinderLeft = 0;
+
+  /// Songs LRCLIB wouldn't answer for in the last search, to try again.
+  int get lyricsFinderUnanswered => _lyricsFinderUnanswered;
+  int _lyricsFinderUnanswered = 0;
+
+  /// A pause between songs, to go easy on a free service.
+  static const _lyricsFinderPause = Duration(milliseconds: 300);
+
+  /// LRCLIB turning away some songs is normal; this many in a row means
+  /// it's struggling, so the rest wait for another time. A longer pause
+  /// follows each until then.
+  static const _lyricsFinderTurnedAwayLimit = 8;
+  static const _lyricsFinderTurnedAwayPause = Duration(seconds: 5);
+
+  void setLyricsFinderOn(bool on) {
+    _prefs?.setBool(_lyricsFinderKey, on);
+    _lyricsFinderProblem = null;
+    if (!on) {
+      _finder?.close();
+      _finder = null;
+    }
+    _notify({MusicAspect.settings, MusicAspect.searches});
+    if (on) unawaited(_findLyrics());
+  }
+
+  /// Tries again after a problem.
+  void retryFindingLyrics() {
+    _lyricsFinderProblem = null;
+    unawaited(_findLyrics());
+  }
+
+  /// Forgets every song's found lyrics, leaving their own. Those songs are
+  /// only looked up again if the finder is still on.
+  Future<void> removeFoundLyrics() async {
+    final found = _found;
+    if (found == null) return;
+    final ids = found.ids.toList();
+    found.clear();
+    ids.forEach(MediaLibrary.forgetLyrics);
+    await found.save();
+    _lyrics?.forget(ids);
+    _lyricSearch = null;
+    _notify({MusicAspect.searches});
+    unawaited(_indexLyrics());
+  }
+
+  /// Stops using found lyrics for [song], whose lyrics the user has written.
+  void keepOwnLyrics(Song song) {
+    final found = _found;
+    if (found == null) return;
+    found.keepOwn(song.id);
+    MediaLibrary.forgetLyrics(song.id);
+    unawaited(found.save());
+  }
+
+  void _keepFoundLyrics(Song song, FoundLyrics found, String text) {
+    found.put(song.id, text);
+    MediaLibrary.forgetLyrics(song.id);
+    if ((_lyrics, _lyricStamps[song.id]) case (final index?, final stamp?)) {
+      index.put(song, stamp, SongLyrics.of(parseLyrics(text)));
+    }
+    _lyricSearch = null;
+  }
+
+  /// Whether [song] has no singing, as its title or genre says or LRCLIB
+  /// has listed it.
+  bool isInstrumental(Song song) =>
+      looksInstrumental(song.title, song.genre) || (_found?.isInstrumental(song.id) ?? false);
+
+  /// Looks up just [song], now, even if it's been tried before, returning
+  /// whether lyrics were found. Throws [LyricsFinderException]. A song of no
+  /// known artist isn't sent: it can't be told apart from others.
+  Future<bool> findLyricsFor(Song song) async {
+    final found = _found;
+    if (found == null || song.artist == null) return false;
+    final finder = LyricsFinder();
+    try {
+      final (:text, :instrumental) = await finder.find(
+        title: song.title,
+        artist: song.artistName,
+        album: song.album,
+        length: song.duration,
+        timedOnly: _lyrics?.of(song) != null,
+      );
+      if (text != null) {
+        _keepFoundLyrics(song, found, text);
+        _notify({MusicAspect.searches});
+      } else if (instrumental) {
+        found.markInstrumental(song.id);
+      } else {
+        found.missed(song.id, DateTime.now());
+      }
+      await _lyrics?.save();
+      await found.save();
+      if (text != null) unawaited(_saveFoundLyrics());
+      return text != null;
+    } finally {
+      finder.close();
+    }
+  }
+
+  /// The songs to look up, those added most recently first, as a big
+  /// library takes hours and they're the likeliest to be playing. Not spoken
+  /// ones or instrumentals, and not those of no known artist, which can't be
+  /// told apart from others of the same name. Songs with timed lyrics of
+  /// their own need nothing.
+  List<Song> _songsToLookUp(LyricsIndex index, FoundLyrics found, DateTime now) => [
+    for (final song in recentlyAdded)
+      if (!song.spoken &&
+          song.artist != null &&
+          !looksInstrumental(song.title, song.genre) &&
+          !found.settled(song.id, now) &&
+          _lyricStamps[song.id] != null &&
+          index.has(song, _lyricStamps[song.id]!) &&
+          index.of(song)?.lines.first.time == null)
+        song,
+  ];
+
+  Future<void> _findLyrics() async {
+    final index = _lyrics, found = _found;
+    if (index == null || found == null || !lyricsFinderOn) return;
+    if (_findingLyrics || _indexingLyrics || _lyricsFinderProblem != null) return;
+    final wanted = _songsToLookUp(index, found, DateTime.now());
+    if (wanted.isEmpty) return unawaited(_saveFoundLyrics());
+
+    final finder = _finder = LyricsFinder();
+    _findingLyrics = true;
+    _lyricsFinderLeft = wanted.length;
+    _lyricsFinderUnanswered = 0;
+    _notify({MusicAspect.searches});
+    var turnedAway = 0;
+    try {
+      for (final (i, song) in wanted.indexed) {
+        if (_finder != finder) break;
+        final ({String? text, bool instrumental}) result;
+        try {
+          result = await finder.find(
+            title: song.title,
+            artist: song.artistName,
+            album: song.album,
+            length: song.duration,
+            timedOnly: index.of(song) != null,
+          );
+        } on LyricsFinderException catch (e) {
+          if (e.problem != LyricsFinderProblem.busy || ++turnedAway >= _lyricsFinderTurnedAwayLimit) rethrow;
+          found.unanswered(song.id, DateTime.now());
+          _lyricsFinderUnanswered++;
+          _lyricsFinderLeft = wanted.length - i - 1;
+          _notify({MusicAspect.searches});
+          await Future<void>.delayed(_lyricsFinderTurnedAwayPause);
+          continue;
+        }
+        turnedAway = 0;
+        if (result case (text: final text?, instrumental: _)) {
+          _keepFoundLyrics(song, found, text);
+        } else if (result.instrumental) {
+          found.markInstrumental(song.id);
+        } else {
+          found.missed(song.id, DateTime.now());
+        }
+        _lyricsFinderLeft = wanted.length - i - 1;
+        _notify({MusicAspect.searches});
+        // Saved every so often, so stopping midway loses little. The index
+        // goes first: a song it has that the found file lacks is just looked
+        // up again, but the other way round it never shows in lyrics search.
+        if (i % 25 == 24) {
+          await index.save();
+          await found.save();
+        }
+        await Future<void>.delayed(_lyricsFinderPause);
+      }
+    } on LyricsFinderException catch (e) {
+      // Turning it off closes the connection, which is no problem to report.
+      if (_finder == finder) _lyricsFinderProblem = e.problem;
+    } finally {
+      // Turned off and straight back on: this run's connection is gone, so
+      // another picks up where it stopped.
+      final goAgain = _finder != finder && lyricsFinderOn;
+      _finder = null;
+      finder.close();
+      _findingLyrics = false;
+      _lyricsFinderLeft = 0;
+      await index.save();
+      await found.save();
+      _notify({MusicAspect.searches});
+      unawaited(goAgain ? _findLyrics() : _saveFoundLyrics());
+    }
+  }
+
+  /// Whether found lyrics go into the songs' files, on desktop. Off until
+  /// the user says so: the finder promised to leave files alone, and on
+  /// Android each file would need its own permission. Left out of backups,
+  /// like the finder.
+  bool get saveLyricsInFiles => isDesktop && (_prefs?.getBool(_saveLyricsKey) ?? false);
+
+  void setSaveLyricsInFiles(bool on) {
+    _prefs?.setBool(_saveLyricsKey, on);
+    _notify({MusicAspect.settings, MusicAspect.searches});
+    if (on) unawaited(_saveFoundLyrics());
+  }
+
+  /// Songs left to save lyrics into in the run under way.
+  int get lyricsToSaveLeft => _lyricsToSaveLeft;
+  int _lyricsToSaveLeft = 0;
+
+  bool _savingLyrics = false;
+
+  /// Moves found lyrics into their songs' files, if the user has chosen
+  /// that. Any song this can't be done for keeps them in Blimp: those in
+  /// other formats, those playing, whose file is in use, and those with
+  /// lyrics of their own, which are never replaced.
+  Future<void> _saveFoundLyrics() async {
+    final found = _found;
+    if (found == null || !saveLyricsInFiles || _savingLyrics) return;
+    final songs = [
+      for (final id in found.ids)
+        if (_scannedById[id] case final song? when TagEditor.canEdit(song)) song,
+    ];
+    if (songs.isEmpty) return;
+    _savingLyrics = true;
+    _lyricsToSaveLeft = songs.length;
+    _notify({MusicAspect.searches});
+    var saved = false;
+    try {
+      for (final song in songs) {
+        if (!saveLyricsInFiles) break;
+        if (song != currentSong && await _saveLyricsIn(song, found)) saved = true;
+        _lyricsToSaveLeft--;
+        _notify({MusicAspect.searches});
+      }
+    } finally {
+      _savingLyrics = false;
+      _lyricsToSaveLeft = 0;
+      await found.save();
+      _notify({MusicAspect.searches});
+      // Read again, so the library knows what's in the files now.
+      if (saved) unawaited(load());
+    }
+  }
+
+  Future<bool> _saveLyricsIn(Song song, FoundLyrics found) async {
+    final text = found.textOf(song.id);
+    if (text == null) return false;
+    try {
+      if ((await MediaLibrary.embeddedLyrics(song) ?? '').trim().isNotEmpty) return false;
+      await TagEditor.save(song, TagChanges(lyrics: text), keepDate: true);
+    } on Exception {
+      return false;
+    }
+    found.savedInFile(song.id, DateTime.now());
+    MediaLibrary.forgetLyrics(song.id);
+    return true;
   }
 
   // ---------------------------------------------------------------------------

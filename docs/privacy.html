@@ -58,13 +58,13 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
       Blimp
     </div>
     <h1>Privacy Policy</h1>
-    <p class="meta">Effective 9 October 2026 · Applies to the Blimp music player for Android and Windows</p>
+    <p class="meta">Effective 2 November 2026 · Applies to the Blimp music player for Android and Windows</p>
   </header>
 
   <div class="glance">
     <h2>At a glance</h2>
     <ul>
-      <li>Blimp has no internet access. It cannot send anything anywhere.</li>
+      <li>Blimp only uses the internet if you search for lyrics, which sends a song's title, artist, album and length to LRCLIB, or on Windows for missing tags, which sends the same details to iTunes Search and MusicBrainz.</li>
       <li>We don't collect, store, sell or share any personal data.</li>
       <li>Everything Blimp keeps, like playlists and listening history, stays on your device.</li>
       <li>The visualizer only reads the sound Blimp is playing. Blimp never records audio.</li>
@@ -73,7 +73,7 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
 
   <section>
     <h2>What Blimp does</h2>
-    <p>Blimp is a music player for the audio files already on your phone or PC. It works entirely offline. There are no accounts, no ads, no analytics and no third-party tracking tools in the app.</p>
+    <p>Blimp is a music player for the audio files already on your phone or PC. It works offline, apart from an optional lyrics search and, on Windows, an optional search for missing tags. There are no accounts, no ads, no analytics and no third-party tracking tools in the app.</p>
   </section>
 
   <section>
@@ -96,12 +96,22 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
   </section>
 
   <section>
+    <h2>Searching for lyrics</h2>
+    <p>Blimp only searches for lyrics online when you ask it to, and shows a notice first. You can search for one song's lyrics from the player's Lyrics tab, or for your whole library by turning on the lyrics finder, which also looks up new songs. You can turn it off in <strong>Settings &rarr; Lyrics finder</strong>. Apart from finding missing tags, below, this is the only part of Blimp that uses the internet.</p>
+    <p>When you do, Blimp sends the title, artist, album and length of that song, or of each of your songs, to <a href="https://lrclib.net">LRCLIB</a>, a free public lyrics service, to look up their lyrics. Like any website, LRCLIB can see your internet address when Blimp connects to it. Blimp sends nothing else: no account, no listening history, no device identifier and none of your music. LRCLIB is run independently of Blimp, and we have no control over how it handles requests.</p>
+    <p>Lyrics it finds are saved on your device. On Windows, you can choose to save them into your music files instead, which stays on your device too. Turning the finder off stops all lookups, and <strong>Remove found lyrics</strong> on the same page deletes them.</p>
+    <h2>Finding missing tags</h2>
+    <p>On Windows, <strong>Settings &rarr; Find missing tags</strong> can fill in songs' missing tags and covers. It only runs when you ask it to, and shows a notice first. Blimp sends the title, artist, album and length of those songs to Apple's iTunes Search and to <a href="https://musicbrainz.org">MusicBrainz</a>, a free public music database, and downloads covers from Apple and the Cover Art Archive. Like any website, they can see your internet address. Blimp sends nothing else. These services are run independently of Blimp, and we have no control over how they handle requests. What it finds is saved into your music files, on your device.</p>
+  </section>
+
+  <section>
     <h2>Information stored on your device</h2>
-    <p>To work as a music player, Blimp saves a few things on your phone or PC. None of it ever leaves the device through Blimp:</p>
+    <p>To work as a music player, Blimp saves a few things on your phone or PC. None of it leaves the device through Blimp:</p>
     <ul>
       <li>Your playlists, favourites and current queue</li>
       <li>Listening history, used for Home, your top songs and listening stats</li>
       <li>Search history</li>
+      <li>Lyrics found online, if you search for them</li>
       <li>Your settings, such as theme, equalizer and hidden folders</li>
       <li>On Windows, a saved scan of your music folder and shrunken copies of album covers, so Blimp starts quickly, and the window's size and position</li>
     </ul>
@@ -115,7 +125,7 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
 
   <section>
     <h2>Android Auto and sharing</h2>
-    <p>If you connect to Android Auto, Blimp shows your music in your car's display through Android. When you choose to share a song, Android's share menu or Windows' share panel sends the file to the app you pick. Both happen only when you use them, and Blimp itself doesn't send data anywhere.</p>
+    <p>If you connect to Android Auto, Blimp shows your music in your car's display through Android. When you choose to share a song, Android's share menu or Windows' share panel sends the file to the app you pick. Both happen only when you use them, and they don't involve searching for lyrics.</p>
   </section>
 
   <section>
@@ -125,7 +135,7 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
 
   <section>
     <h2>Changes to this policy</h2>
-    <p>If this policy changes, the new version will be posted on this page with a new effective date. If Blimp ever starts to collect data, this page will say exactly what and why before that version of the app is released.</p>
+    <p>If this policy changes, the new version will be posted on this page with a new effective date. If Blimp ever starts to collect data or send anything more, this page will say exactly what and why before that version of the app is released.</p>
   </section>
 
   <section>
@@ -133,5 +143,5 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
     <p>Questions about this policy can be asked by opening an issue at <a href="https://github.com/BersamaMus/Blimp/issues">github.com/BersamaMus/Blimp/issues</a>.</p>
   </section>
 
-  <footer>Blimp Privacy Policy · Effective 9 October 2026 · <a href="./">Blimp home</a></footer>
+  <footer>Blimp Privacy Policy · Effective 2 November 2026 · <a href="./">Blimp home</a></footer>
 </main>

@@ -11,11 +11,13 @@ import '../services/backup.dart';
 import '../services/desktop_library.dart';
 import '../services/desktop_window.dart';
 import '../services/device_files.dart';
+import '../services/lyrics_finder.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
 import '../widgets/app_menu.dart';
 import '../widgets/shelf.dart';
 import '../widgets/song_options.dart';
+import '../widgets/tag_gaps_view.dart';
 import 'duplicates_screen.dart';
 
 /// The top-level settings list.
@@ -48,6 +50,19 @@ class SettingsScreen extends StatelessWidget {
             subtitle: 'Songs on this device, hidden folders, short files, rescan',
             onTap: () => open(const StorageSettingsScreen()),
           ),
+          _SettingsTile(
+            icon: Icons.lyrics_outlined,
+            title: 'Lyrics finder',
+            subtitle: 'Find lyrics online for your songs',
+            onTap: () => open(const LyricsFinderSettingsScreen()),
+          ),
+          if (isDesktop)
+            _SettingsTile(
+              icon: Icons.sell_outlined,
+              title: 'Find missing tags',
+              subtitle: 'Fill in missing tags and covers from online',
+              onTap: () => open(const TagFinderSettingsScreen()),
+            ),
           _SettingsTile(
             icon: Icons.settings_backup_restore_rounded,
             title: 'Backup & restore',
@@ -384,6 +399,152 @@ class PrivacySettingsScreen extends StatelessWidget {
       onConfirm();
       messenger.showSnackBar(SnackBar(content: Text(done)));
     }
+  }
+}
+
+/// Lists songs with missing tags, and fills them in with one click.
+class TagFinderSettingsScreen extends StatelessWidget {
+  const TagFinderSettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Find missing tags')),
+    body: const TagGapsView(),
+  );
+}
+
+/// Turns the lyrics finder on or off and shows how it's getting on. It goes
+/// online, so it says what it sends.
+class LyricsFinderSettingsScreen extends StatelessWidget {
+  const LyricsFinderSettingsScreen({super.key});
+
+  Future<void> _turnOn(BuildContext context) async {
+    final music = MusicScope.read(context);
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.sheet,
+        title: const Text('Find lyrics online?'),
+        content: const Text('$lyricsPrivacyNotice\n\nThis is done for each song in your library, and any new ones.'),
+        actions: [
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Turn on')),
+        ],
+      ),
+    );
+    if (agreed ?? false) music.setLyricsFinderOn(true);
+  }
+
+  Future<void> _saveInFiles(BuildContext context) async {
+    final music = MusicScope.read(context);
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.sheet,
+        title: const Text('Save lyrics into your songs?'),
+        content: const Text(saveLyricsNotice),
+        actions: [
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save lyrics')),
+        ],
+      ),
+    );
+    if (agreed ?? false) music.setSaveLyricsInFiles(true);
+  }
+
+  Future<void> _remove(BuildContext context) async {
+    final music = MusicScope.read(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.sheet,
+        title: const Text('Remove found lyrics?'),
+        content: const Text("Lyrics that came with your songs stay. With the finder on, it'll look for the rest again."),
+        actions: [
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (!(confirmed ?? false)) return;
+    await music.removeFoundLyrics();
+    messenger.showSnackBar(const SnackBar(content: Text('Found lyrics removed')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final music = MusicScope.of(context, const {MusicAspect.settings, MusicAspect.searches});
+    final found = music.foundLyricsCount;
+    final problem = music.lyricsFinderProblem;
+    final status = switch (problem) {
+      LyricsFinderProblem.busy => 'LRCLIB is busy right now. Blimp will try again next time it opens.',
+      LyricsFinderProblem.unreachable => "Couldn't reach LRCLIB. Check your connection.",
+      null when music.findingLyrics => 'Looking for lyrics: ${music.lyricsFinderLeft} songs left',
+      null when music.lyricsFinderOn && music.lyricsFinderUnanswered > 0 =>
+        "LRCLIB didn't answer for ${music.lyricsFinderUnanswered} songs. Blimp will try them again after a day.",
+      null when music.lyricsFinderOn => 'Up to date. New songs are looked up as they arrive.',
+      null => null,
+    };
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Lyrics finder')),
+      body: ListView(
+        children: [
+          _SwitchTile(
+            title: 'Find lyrics online',
+            subtitle: 'Look up every song without timed lyrics on LRCLIB. Timed lyrics are picked first, then plain ones',
+            value: music.lyricsFinderOn,
+            onChanged: (on) => on ? _turnOn(context) : music.setLyricsFinderOn(false),
+          ),
+          if (status != null) ListTile(title: Text(status)),
+          if (problem != null)
+            ListTile(leading: const Icon(Icons.refresh_rounded), title: const Text('Try again'), onTap: music.retryFindingLyrics),
+          if (isDesktop)
+            _SwitchTile(
+              title: 'Save lyrics into songs',
+              subtitle: music.lyricsToSaveLeft > 0
+                  ? 'Saving lyrics: ${music.lyricsToSaveLeft} songs left'
+                  : 'Put found lyrics in your MP3 and FLAC files, so they go wherever the songs go',
+              value: music.saveLyricsInFiles,
+              onChanged: (on) => on ? _saveInFiles(context) : music.setSaveLyricsInFiles(false),
+            ),
+          ListTile(
+            title: const Text('Remove found lyrics'),
+            subtitle: Text(found == 1 ? '1 song has found lyrics' : '$found songs have found lyrics'),
+            enabled: found > 0,
+            onTap: () => _remove(context),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            child: Text(
+              "When it's on, Blimp sends each song's title, artist, album and length to LRCLIB (lrclib.net), a "
+              'free public lyrics service, and your internet address is visible to it, as with any website. '
+              'Nothing else about you or your music is sent.\n\n'
+              '${music.saveLyricsInFiles ? 'Found lyrics are saved into your MP3 and FLAC files where they can be, otherwise kept in Blimp,' : 'Found lyrics are kept in Blimp, not in your music files,'} and '
+              "work offline afterwards. A song's own timed lyrics are never replaced. Lyrics come from LRCLIB, "
+              'written by its community, so a few may be wrong.',
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -8,16 +8,23 @@ import '../services/lyrics.dart';
 import '../services/media_library.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
+import '../widgets/drag_to_close.dart';
 import '../widgets/shelf.dart';
 
 /// Opens the playing song's lyrics full screen, to sing along.
 Future<void> openKaraoke(BuildContext context) {
   return Navigator.of(context, rootNavigator: true).push(
     PageRouteBuilder(
-      transitionDuration: const Duration(milliseconds: 300),
-      reverseTransitionDuration: const Duration(milliseconds: 200),
-      pageBuilder: (_, _, _) => const KaraokeScreen(),
-      transitionsBuilder: (_, animation, _, child) => FadeTransition(opacity: animation, child: child),
+      transitionDuration: const Duration(milliseconds: 350),
+      reverseTransitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (_, _, _) => const DragToClose(child: KaraokeScreen()),
+      transitionsBuilder: (_, animation, _, child) => SlideTransition(
+        position: Tween(
+          begin: const Offset(0, 1),
+          end: Offset.zero,
+        ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
+        child: child,
+      ),
     ),
   );
 }
@@ -292,31 +299,35 @@ class _SungLine extends StatelessWidget {
   }
 }
 
-/// Dots counting down the last three seconds before the next line.
+/// A row of dots draining over the last three seconds before the next line.
+/// Each fades out smoothly, and the last goes out just as the line starts,
+/// so there's a moment to come in on rather than a count of whole seconds.
 class _Countdown extends StatelessWidget {
   const _Countdown({required this.left});
 
   /// Until the next line; null after the last.
   final Duration? left;
 
+  static const _dots = 12;
+  static const _length = Duration(seconds: 3);
+
   @override
   Widget build(BuildContext context) {
     final left = this.left;
-    final dots = left == null || left > const Duration(seconds: 3) ? 0 : (left.inMilliseconds / 1000).ceil();
+    final lit = left == null || left > _length ? 0.0 : _dots * left.inMicroseconds / _length.inMicroseconds;
     return SizedBox(
       height: 16,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          for (var i = 0; i < 3; i++)
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 12,
-              height: 12,
-              margin: const EdgeInsets.symmetric(horizontal: 6),
+          for (var i = 0; i < _dots; i++)
+            Container(
+              width: 10,
+              height: 10,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: i < dots ? AppColors.accent : Colors.white.withValues(alpha: 0.12),
+                color: Color.lerp(Colors.white.withValues(alpha: 0.12), AppColors.accent, (lit - i).clamp(0.0, 1.0)),
               ),
             ),
         ],

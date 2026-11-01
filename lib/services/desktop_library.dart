@@ -260,7 +260,8 @@ abstract final class DesktopLibrary {
     final details = _details[songId];
     final path = details?['path'] as String?;
     if (path == null) return null;
-    // Named by when the song's file changed, as covers are.
+    // Named by when the song's file changed. Saving tags that keep the date
+    // doesn't touch the sound.
     final cached = File('${await _cachePath()}/waveforms/${songId}_${points}_${details!['dateAdded']}');
     if (await cached.exists()) return cached.readAsBytes();
     final levels = await _waveformChannel.invokeMethod<Float64List>('levels', {'path': path, 'points': points});
@@ -279,8 +280,9 @@ abstract final class DesktopLibrary {
     final details = _details[songId];
     final path = details?['path'] as String?;
     if (path == null) return null;
-    // Named by when the song's file changed, so a new cover is picked up.
-    final cached = File('${await _cachePath()}/artwork/${songId}_${size}_${details!['dateAdded']}.png');
+    // Named by the file's date and length, so a new cover is picked up even
+    // when saving it kept the date.
+    final cached = File('${await _cachePath()}/artwork/${songId}_${size}_${details!['dateAdded']}_${details['size']}.png');
     if (!await cached.exists()) {
       final original = await Isolate.run(() => _readCover(path));
       final shrunk = original == null ? null : await _shrink(original, size);
@@ -290,6 +292,10 @@ abstract final class DesktopLibrary {
     // Empty means it was looked for before and has none.
     return await cached.length() == 0 ? null : cached;
   }
+
+  /// Those of the files at [paths] with no cover, in their tags or beside them.
+  static Future<Set<String>> withoutCovers(List<String> paths) =>
+      Isolate.run(() => {for (final path in paths) if (_readCover(path) == null) path});
 
   static Uint8List? _readCover(String path) {
     try {

@@ -49,3 +49,17 @@ app.*.map.json
 
 # Build output anywhere, including android/build and the local packages.
 build/
+
+# Kept on this PC, not on GitHub: notes, store materials, editor settings,
+# and the iOS project, as Blimp is for Android and Windows.
+/CLAUDE.md
+/DEVELOPER_GUIDE.md
+/store_listing/
+/ios/
+/.vscode/
+/devtools_options.yaml
+
+# Made by Flutter inside the local packages.
+packages/*/pubspec.lock
+packages/*/ios/Flutter/
+packages/*/ios/Runner/
