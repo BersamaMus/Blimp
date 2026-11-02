@@ -9,6 +9,7 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "background.cpp"
+  "discord_status.cpp"
   "media_controls.cpp"
   "open_files.cpp"
   "output_watch.cpp"

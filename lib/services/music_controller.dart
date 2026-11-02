@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,6 +15,7 @@ import 'artist_links.dart';
 import 'backup.dart';
 import 'catalog.dart';
 import 'decades.dart';
+import 'desktop_equalizer.dart';
 import 'desktop_library.dart';
 import 'folders.dart';
 import 'home_widgets.dart';
@@ -26,10 +28,12 @@ import 'media_library.dart';
 import 'milestones.dart';
 import 'playlists.dart';
 import 'queue_order.dart';
+import 'quick_picks.dart';
 import 'resume_points.dart';
 import 'search_text.dart';
 import 'smart_playlists.dart';
 import 'song_dna.dart';
+import 'song_edges.dart';
 import 'tag_editor.dart';
 import 'time_machine.dart';
 import 'visualizer.dart';
@@ -157,6 +161,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
         case PositionDiscontinuityReason.autoAdvance:
           // Followed on from the song before: fades in, if fading.
           _fadeInIndex = discontinuity.event.currentIndex;
+          _skippedStartIndex = _skippedEndIndex = null;
           // Skips from outside the app (the notification, headphones, the
           // widgets) change song without a seek here, so they arrive as the
           // song ending. A song only really ends while playing.
@@ -205,6 +210,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   static const _browseFoldersKey = 'library_browse_folders';
   static const _equalizerEnabledKey = 'equalizer_enabled';
   static const _equalizerGainsKey = 'equalizer_gains';
+  static const _desktopEqualizerGainsKey = 'desktop_equalizer_gains';
   static const _historyPausedKey = 'history_paused';
   static const _searchHistoryPausedKey = 'search_history_paused';
   static const _visualizerStyleKey = 'visualizer_style';
@@ -219,6 +225,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   static const _ratingsKey = 'song_ratings';
   static const _lyricsFinderKey = 'lyrics_finder';
   static const _saveLyricsKey = 'lyrics_in_files';
+  static const _discordStatusKey = 'discord_status';
   static const _hiddenFoldersKey = 'hidden_folders';
   static const _minSongSecondsKey = 'min_song_seconds';
   static const _speedKey = 'playback_speed';
@@ -578,13 +585,25 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<Song> songsInGenre(String genre) => _songsByGenre[genre] ?? const [];
 
-  /// A random selection from the library, picked fresh on each launch.
+  /// A selection from the library, picked fresh on each launch: partly what
+  /// the listener tends to play at this time of day, partly at random.
   List<Song> get quickPicks => _quickPicks;
 
   static const _quickPickCount = 20;
 
-  void _shuffleQuickPicks() =>
-      _quickPicks = ([for (final s in songs) if (!isUnwanted(s)) s]..shuffle()).take(_quickPickCount).toList();
+  /// The part of the day Quick picks were chosen for.
+  String? _picksMoment;
+
+  void _shuffleQuickPicks() {
+    final now = DateTime.now();
+    _picksMoment = dayMoment(now);
+    _quickPicks = quickPicksFor(
+      songs: [for (final s in songs) if (!isUnwanted(s)) s],
+      listens: _log?.events ?? const [],
+      now: now,
+      count: _quickPickCount,
+    );
+  }
 
   /// Picks a new random set, for the refresh button on Home.
   void reshuffleQuickPicks() {
@@ -658,6 +677,44 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   /// Saved equalizer gains in decibels, by band index.
   List<double> _equalizerGains = [];
 
+  /// Whether this device has an equalizer: Android, or mpv on Windows.
+  bool get hasEqualizer => equalizer != null || Platform.isWindows;
+
+  /// Windows's equalizer gains in decibels, by band of
+  /// [DesktopEqualizer.frequencies]. Saved apart from Android's, whose bands
+  /// differ, so a backup from one doesn't scramble the other.
+  List<double> desktopEqualizerGains = List.filled(DesktopEqualizer.frequencies.length, 0, growable: true);
+
+  void setDesktopEqualizerGains(List<double> gains) {
+    desktopEqualizerGains = [...gains];
+    _prefs?.setStringList(_desktopEqualizerGainsKey, [for (final g in gains) '$g']);
+    _applyDesktopEqualizer();
+    _notify({MusicAspect.settings});
+  }
+
+  void _applyDesktopEqualizer() {
+    if (!Platform.isWindows) return;
+    _applyEqualizerFilter();
+    _equalizerVolume = equalizerEnabled ? pow(10, -DesktopEqualizer.headroom(desktopEqualizerGains) / 20).toDouble() : 1;
+    _applyVolume();
+  }
+
+  String? _equalizerFilter;
+
+  /// Gives mpv the equalizer for the song playing, whose sample rate decides
+  /// which bands it can have. Left alone if that's no change, as it's heard.
+  void _applyEqualizerFilter() {
+    if (!Platform.isWindows) return;
+    final rate = switch (currentSong) {
+      final song? => DesktopLibrary.audioFormat(song)?.sampleRate,
+      null => null,
+    };
+    final filter = equalizerEnabled ? DesktopEqualizer.filter(desktopEqualizerGains, sampleRate: rate) : null;
+    if (filter == _equalizerFilter) return;
+    _equalizerFilter = filter;
+    JustAudioMediaKit.setEqualizer(filter);
+  }
+
   /// Folders whose songs (and their subfolders' songs) are left out of the
   /// library, by full path.
   List<String> hiddenFolders = [];
@@ -726,9 +783,18 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     historyPaused = prefs.getBool(_historyPausedKey) ?? false;
     searchHistoryPaused = prefs.getBool(_searchHistoryPausedKey) ?? false;
     equalizerEnabled = prefs.getBool(_equalizerEnabledKey) ?? false;
+    desktopEqualizerGains = [
+      for (final (i, gain) in (prefs.getStringList(_desktopEqualizerGainsKey) ?? const <String>[]).indexed)
+        if (i < DesktopEqualizer.frequencies.length) double.tryParse(gain) ?? 0,
+    ];
+    desktopEqualizerGains.addAll(
+      List.filled(DesktopEqualizer.frequencies.length - desktopEqualizerGains.length, 0),
+    );
+    _applyDesktopEqualizer();
     visualizerStyle = VisualizerStyle.values.asNameMap()[prefs.getString(_visualizerStyleKey)] ?? VisualizerStyle.bars;
     visualizerEnabled = prefs.getBool(_visualizerEnabledKey) ?? true;
-    autoplay = prefs.getBool(_autoplayKey) ?? true;
+    discordStatus.value = isDesktop && (prefs.getBool(_discordStatusKey) ?? false);
+    autoplay =prefs.getBool(_autoplayKey) ?? true;
     waveformSeekBar = prefs.getBool(_waveformSeekBarKey) ?? false;
     browseFolders = prefs.getBool(_browseFoldersKey) ?? false;
     hiddenFolders = prefs.getStringList(_hiddenFoldersKey) ?? [];
@@ -811,6 +877,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   void setEqualizerEnabled(bool enabled) {
     equalizerEnabled = enabled;
     equalizer?.setEnabled(enabled);
+    _applyDesktopEqualizer();
     _prefs?.setBool(_equalizerEnabledKey, enabled);
     _notify({MusicAspect.settings});
   }
@@ -998,6 +1065,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _browseFoldersKey,
     _equalizerEnabledKey,
     _equalizerGainsKey,
+    _desktopEqualizerGainsKey,
     _historyPausedKey,
     _searchHistoryPausedKey,
     _visualizerStyleKey,
@@ -1078,6 +1146,10 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       _hasPermission().then((granted) {
         if (granted && status == LibraryStatus.permissionDenied) load();
       });
+    }
+    // Back after hours away: this morning's picks don't suit the evening.
+    if (state == AppLifecycleState.resumed && _picksMoment != null && _picksMoment != dayMoment(DateTime.now())) {
+      reshuffleQuickPicks();
     }
   }
 
@@ -1639,6 +1711,17 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Whether the song playing shows on the user's Discord profile, on
+  /// Windows. Off until the user says so, as it tells other people what
+  /// they're listening to. Left out of backups, like the lyrics finder.
+  final discordStatus = ValueNotifier(false);
+
+  void setDiscordStatus(bool on) {
+    _prefs?.setBool(_discordStatusKey, on);
+    discordStatus.value = on;
+    _notify({MusicAspect.settings});
+  }
+
   /// Whether found lyrics go into the songs' files, on desktop. Off until
   /// the user says so: the finder promised to leave files alone, and on
   /// Android each file would need its own permission. Left out of backups,
@@ -1712,13 +1795,14 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// How long songs fade out at their end and in at their start when one
   /// follows another; 0 for none. (Only one song can play at a time, so they
-  /// fade rather than overlap.)
+  /// fade rather than overlap.) Silence at either end is skipped, and a song
+  /// that dies away by itself is left to (see [SongEdges]).
   int fadeSeconds = 0;
 
   static const fadeSecondsOptions = [0, 2, 4, 6, 8, 10];
 
   /// The parts of the player's volume, multiplied together.
-  double _gainVolume = 1, _fadeVolume = 1, _sleepVolume = 1;
+  double _gainVolume = 1, _fadeVolume = 1, _sleepVolume = 1, _equalizerVolume = 1;
   double? _volumeSent;
 
   /// The app's own volume, 0 to 1, under the system's: the desktop mini
@@ -1735,7 +1819,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   void _applyVolume() {
     // Squared, so the slider's steps sound about even: loudness isn't linear.
     final user = volume.value * volume.value;
-    final level = (user * _gainVolume * _fadeVolume * _sleepVolume).clamp(0.0, 1.0);
+    final level = (user * _gainVolume * _fadeVolume * _sleepVolume * _equalizerVolume).clamp(0.0, 1.0);
     if (_volumeSent != null && (level - _volumeSent!).abs() < 0.005) return;
     _volumeSent = level;
     player.setVolume(level);
@@ -1759,6 +1843,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     fadeSeconds = seconds;
     _prefs?.setInt(_fadeKey, seconds);
     _updateFading();
+    _loadEdges();
     _notify({MusicAspect.settings});
   }
 
@@ -1796,6 +1881,31 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   /// The queue item that started by following the one before, so fades in.
   int? _fadeInIndex;
 
+  /// The queue item whose silence has been skipped, so it's done only once.
+  int? _skippedStartIndex, _skippedEndIndex;
+
+  /// The ends of songs lately played or coming up, by song id. Null for a
+  /// song that's been looked at and can't be read.
+  final _edges = <int, SongEdges?>{};
+
+  static const _edgesKept = 40;
+
+  /// Looks ahead at the ends of the song playing and the next, so they're
+  /// known by the time they're needed.
+  void _loadEdges() {
+    if (fadeSeconds == 0) return;
+    final sequence = player.sequence;
+    final next = player.nextIndex;
+    for (final song in [currentSong, if (next != null && next < sequence.length) songOf(sequence[next])]) {
+      if (song == null || _edges.containsKey(song.id)) continue;
+      _edges[song.id] = null;
+      SongEdges.of(song).then((edges) {
+        _edges[song.id] = edges;
+        if (_edges.length > _edgesKept) _edges.remove(_edges.keys.first);
+      }, onError: (Object _) {});
+    }
+  }
+
   /// Runs [_fade] while music plays with fading on.
   void _updateFading() {
     final run = fadeSeconds > 0 && player.playing;
@@ -1813,7 +1923,9 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Fades the song out over its last [fadeSeconds] when another follows,
   /// and in over its first when it followed one. Short songs fade over at
-  /// most a third of their length.
+  /// most a third of their length. The fades go by where the music starts
+  /// and stops, skipping any silence around it, and a song that dies away by
+  /// itself isn't faded on top of that.
   void _fade() {
     final duration = player.duration;
     if (duration == null || duration <= Duration.zero) return;
@@ -1822,12 +1934,28 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     final ms = fade.inMilliseconds;
     if (ms <= 0) return;
 
+    final index = player.currentIndex;
+    final edges = _edges[currentSong?.id];
+    final start = edges?.quietStart ?? Duration.zero;
+    final end = duration - (edges?.quietEnd ?? Duration.zero);
     var volume = 1.0;
     final follows = player.hasNext && player.loopMode != LoopMode.one;
-    if (follows) volume = min(volume, (duration - position).inMilliseconds / ms);
-    if (_fadeInIndex == player.currentIndex) {
-      if (position < fade) {
-        volume = min(volume, position.inMilliseconds / ms);
+    if (follows) {
+      if (edges?.fadesOut != true) volume = min(volume, (end - position).inMilliseconds / ms);
+      // The rest is silence. Moved to the song's very end rather than on to
+      // the next song, which would count as a skip.
+      if (position >= end && end < duration && _skippedEndIndex != index) {
+        _skippedEndIndex = index;
+        player.seek(duration - const Duration(milliseconds: 100));
+      }
+    }
+    if (_fadeInIndex == index) {
+      if (position < start && _skippedStartIndex != index) {
+        _skippedStartIndex = index;
+        player.seek(start);
+      }
+      if (position < start + fade) {
+        volume = min(volume, (position - start).inMilliseconds / ms);
       } else {
         _fadeInIndex = null;
       }
@@ -2565,7 +2693,9 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   void _updateHomeWidgets() => HomeWidgets.update(currentSong, playing: player.playing);
 
   void _onSequenceState(SequenceState state) {
+    _applyEqualizerFilter();
     _updateGain();
+    _loadEdges();
     _updateListening();
     _updateResume();
     _updateHomeWidgets();

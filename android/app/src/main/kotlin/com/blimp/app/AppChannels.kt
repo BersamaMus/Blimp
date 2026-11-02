@@ -69,7 +69,7 @@ object AppChannels {
             }
             val executor = when (call.method) {
                 "getArtwork" -> MediaHandler.artworkExecutor
-                "getWaveform", "getGain" -> MediaHandler.waveformExecutor
+                "getWaveform", "getGain", "getSamples" -> MediaHandler.waveformExecutor
                 "getReleaseTypes", "getHiRes", "getLyricsBatch", "getLyricsStamps" -> MediaHandler.releaseTypeExecutor
                 else -> MediaHandler.queryExecutor
             }
@@ -86,6 +86,12 @@ object AppChannels {
                         "getWaveform" -> media.getWaveform(
                             call.argument<Number>("id")!!.toLong(),
                             call.argument<Number>("points")!!.toInt(),
+                        )
+                        "getSamples" -> media.getSamples(
+                            call.argument<Number>("id")!!.toLong(),
+                            call.argument<DoubleArray>("starts")!!,
+                            call.argument<Number>("seconds")!!.toDouble(),
+                            call.argument<Number>("every")!!.toInt(),
                         )
                         "openFolder" -> media.openFolder(call.argument<String>("path")!!)
                         "getLyrics" -> media.getLyrics(call.argument<Number>("id")!!.toLong())
@@ -769,6 +775,108 @@ private class MediaHandler(private val context: Context) {
             if (counts.count { it == 0 } > points / 10) return null
 
             return DoubleArray(points) { if (counts[it] > 0) sqrt(sums[it] / counts[it]) else 0.0 }
+        } catch (e: Exception) {
+            return null
+        } finally {
+            try {
+                codec?.stop()
+            } catch (e: Exception) {
+                // Never started.
+            }
+            codec?.release()
+            extractor.release()
+        }
+    }
+
+    /**
+     * [seconds] of the song from each of [starts] (in seconds), mixed to mono
+     * and keeping every [every]th sample: "rate" (of what's kept), "samples",
+     * and "lengths" of each piece, which is shorter if the song ends first.
+     * Null if it can't be decoded.
+     */
+    fun getSamples(id: Long, starts: DoubleArray, seconds: Double, every: Int): Map<String, Any>? {
+        val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        try {
+            extractor.setDataSource(context, uri, null)
+            val track = (0 until extractor.trackCount).firstOrNull {
+                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            } ?: return null
+            extractor.selectTrack(track)
+            val format = extractor.getTrackFormat(track)
+            codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!).apply {
+                configure(format, null, null, 0)
+                start()
+            }
+            var rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            var encoding = AudioFormat.ENCODING_PCM_16BIT
+            var samples = FloatArray(1 shl 16)
+            var kept = 0
+            val lengths = IntArray(starts.size)
+            val info = MediaCodec.BufferInfo()
+            for ((piece, start) in starts.withIndex()) {
+                extractor.seekTo((start * 1_000_000).toLong(), MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                // Flushing before any output would lose the setup the decoder
+                // was given, which most formats can't decode without.
+                if (piece > 0) codec.flush()
+                val before = kept
+                var frames = 0L
+                var inputDone = false
+                var idle = 0
+                while (frames < (rate * seconds).toLong()) {
+                    if (!inputDone) {
+                        val input = codec.dequeueInputBuffer(2_000)
+                        if (input >= 0) {
+                            val size = extractor.readSampleData(codec.getInputBuffer(input)!!, 0)
+                            if (size < 0) {
+                                codec.queueInputBuffer(input, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                inputDone = true
+                            } else {
+                                codec.queueInputBuffer(input, 0, size, extractor.sampleTime, 0)
+                                extractor.advance()
+                            }
+                        }
+                    }
+                    val output = codec.dequeueOutputBuffer(info, 2_000)
+                    if (output == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                        if (inputDone && ++idle > 1000) break
+                    } else if (output == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        val changed = codec.outputFormat
+                        rate = changed.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        channels = changed.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        encoding = changed.intOrNull(MediaFormat.KEY_PCM_ENCODING) ?: AudioFormat.ENCODING_PCM_16BIT
+                        // Rarer kinds of sample aren't worth reading by hand.
+                        if (encoding != AudioFormat.ENCODING_PCM_16BIT && encoding != AudioFormat.ENCODING_PCM_FLOAT) return null
+                    } else if (output >= 0) {
+                        if (info.size > 0) {
+                            val pcm = codec.getOutputBuffer(output)!!.order(ByteOrder.nativeOrder())
+                            pcm.position(info.offset)
+                            pcm.limit(info.offset + info.size)
+                            val floats = if (encoding == AudioFormat.ENCODING_PCM_FLOAT) pcm.asFloatBuffer() else null
+                            val shorts = if (floats == null) pcm.asShortBuffer() else null
+                            val count = (floats?.limit() ?: shorts!!.limit()) / channels
+                            for (frame in 0 until count) {
+                                if (frames % every == 0L) {
+                                    var mixed = 0f
+                                    for (c in 0 until channels) {
+                                        val at = frame * channels + c
+                                        mixed += floats?.get(at) ?: (shorts!!.get(at) / 32768f)
+                                    }
+                                    if (kept == samples.size) samples = samples.copyOf(kept * 2)
+                                    samples[kept++] = mixed / channels
+                                }
+                                frames++
+                            }
+                        }
+                        codec.releaseOutputBuffer(output, false)
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                    }
+                }
+                lengths[piece] = kept - before
+            }
+            return mapOf("rate" to rate / every, "samples" to samples.copyOf(kept), "lengths" to lengths)
         } catch (e: Exception) {
             return null
         } finally {

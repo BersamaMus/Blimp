@@ -58,13 +58,13 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
       Blimp
     </div>
     <h1>Privacy Policy</h1>
-    <p class="meta">Effective 2 November 2026 · Applies to the Blimp music player for Android and Windows</p>
+    <p class="meta">Effective 3 November 2026 · Applies to the Blimp music player for Android and Windows</p>
   </header>
 
   <div class="glance">
     <h2>At a glance</h2>
     <ul>
-      <li>Blimp only uses the internet if you search for lyrics, which sends a song's title, artist, album and length to LRCLIB, or on Windows for missing tags, which sends the same details to iTunes Search and MusicBrainz.</li>
+      <li>Blimp only uses the internet if you search for lyrics, which sends a song's title, artist, album and length to LRCLIB, or on Windows for missing tags, which sends the same details to iTunes Search and MusicBrainz, or on Windows for Discord covers, if you turn on the Discord status, which sends the title and artist of songs you play to iTunes Search and MusicBrainz.</li>
       <li>We don't collect, store, sell or share any personal data.</li>
       <li>Everything Blimp keeps, like playlists and listening history, stays on your device.</li>
       <li>The visualizer only reads the sound Blimp is playing. Blimp never records audio.</li>
@@ -73,7 +73,7 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
 
   <section>
     <h2>What Blimp does</h2>
-    <p>Blimp is a music player for the audio files already on your phone or PC. It works offline, apart from an optional lyrics search and, on Windows, an optional search for missing tags. There are no accounts, no ads, no analytics and no third-party tracking tools in the app.</p>
+    <p>Blimp is a music player for the audio files already on your phone or PC. It works offline, apart from an optional lyrics search and, on Windows, an optional search for missing tags and an optional Discord status. There are no accounts, no ads, no analytics and no third-party tracking tools in the app.</p>
   </section>
 
   <section>
@@ -97,11 +97,14 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
 
   <section>
     <h2>Searching for lyrics</h2>
-    <p>Blimp only searches for lyrics online when you ask it to, and shows a notice first. You can search for one song's lyrics from the player's Lyrics tab, or for your whole library by turning on the lyrics finder, which also looks up new songs. You can turn it off in <strong>Settings &rarr; Lyrics finder</strong>. Apart from finding missing tags, below, this is the only part of Blimp that uses the internet.</p>
+    <p>Blimp only searches for lyrics online when you ask it to, and shows a notice first. You can search for one song's lyrics from the player's Lyrics tab, or for your whole library by turning on the lyrics finder, which also looks up new songs. You can turn it off in <strong>Settings &rarr; Lyrics finder</strong>. Apart from finding missing tags and Discord covers, below, this is the only part of Blimp that uses the internet.</p>
     <p>When you do, Blimp sends the title, artist, album and length of that song, or of each of your songs, to <a href="https://lrclib.net">LRCLIB</a>, a free public lyrics service, to look up their lyrics. Like any website, LRCLIB can see your internet address when Blimp connects to it. Blimp sends nothing else: no account, no listening history, no device identifier and none of your music. LRCLIB is run independently of Blimp, and we have no control over how it handles requests.</p>
     <p>Lyrics it finds are saved on your device. On Windows, you can choose to save them into your music files instead, which stays on your device too. Turning the finder off stops all lookups, and <strong>Remove found lyrics</strong> on the same page deletes them.</p>
     <h2>Finding missing tags</h2>
     <p>On Windows, <strong>Settings &rarr; Find missing tags</strong> can fill in songs' missing tags and covers. It only runs when you ask it to, and shows a notice first. Blimp sends the title, artist, album and length of those songs to Apple's iTunes Search and to <a href="https://musicbrainz.org">MusicBrainz</a>, a free public music database, and downloads covers from Apple and the Cover Art Archive. Like any website, they can see your internet address. Blimp sends nothing else. These services are run independently of Blimp, and we have no control over how they handle requests. What it finds is saved into your music files, on your device.</p>
+    <h2>Showing what you play on Discord</h2>
+    <p>On Windows, you can turn on <strong>Show what I play on Discord</strong> in <strong>Settings &rarr; Privacy &amp; data</strong>. It's off until you do. While a song plays, Blimp passes its title, artist, album, timing, a link to its cover and a link to search for it on YouTube Music to the Discord app on your PC. Discord shows those details on your profile to other people, and handles them under its own privacy policy. Blimp doesn't contact YouTube; it only does if someone clicks the link, and then it's that person's visit. Turning the setting off, pausing or closing Blimp takes the status down.</p>
+    <p>Discord can only show covers from the web, so while this is on Blimp sends the title and artist of the songs you play to Apple's iTunes Search to find a link to each cover. For songs Apple doesn't have, it sends the same details to <a href="https://musicbrainz.org">MusicBrainz</a>, along with the length of a song with no artist, and checks the <a href="https://coverartarchive.org">Cover Art Archive</a> for a cover. Like any website, they can see your internet address. Blimp sends nothing else, and none of your music or your own covers are uploaded. These services are run independently of Blimp, and we have no control over how they handle requests. Discord fetches the cover from them itself.</p>
   </section>
 
   <section>
@@ -143,5 +146,5 @@ footer { color: var(--muted); font-size: 15px; border-top: 1px solid var(--line)
     <p>Questions about this policy can be asked by opening an issue at <a href="https://github.com/BersamaMus/Blimp/issues">github.com/BersamaMus/Blimp/issues</a>.</p>
   </section>
 
-  <footer>Blimp Privacy Policy · Effective 2 November 2026 · <a href="./">Blimp home</a></footer>
+  <footer>Blimp Privacy Policy · Effective 3 November 2026 · <a href="./">Blimp home</a></footer>
 </main>

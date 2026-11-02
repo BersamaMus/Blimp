@@ -45,6 +45,109 @@ List<int> flac({List<String> extra = const []}) {
   ];
 }
 
+List<int> atom(String name, List<int> body) => [...be32(body.length + 8), ...latin1.encode(name), ...body];
+
+List<int> textItem(String name, String value) =>
+    atom(name, atom('data', [...be32(1), ...be32(0), ...utf8.encode(value)]));
+
+/// What every MP4 file opens with: how long it is.
+final mvhd = atom('mvhd', [...be32(0), ...be32(0), ...be32(0), ...be32(1000), ...be32(3000), ...List.filled(80, 0)]);
+
+final customItem = atom('----', [
+  ...atom('mean', [...be32(0), ...ascii.encode('com.apple.iTunes')]),
+  ...atom('name', [...be32(0), ...ascii.encode('custom')]),
+  ...atom('data', [...be32(1), ...be32(0), ...ascii.encode('kept')]),
+]);
+
+/// An M4A file with a custom tag and two chunks of audio, with the tags
+/// before the audio, or after it if [mdatFirst].
+List<int> m4a(List<int> sound, {bool mdatFirst = false}) {
+  final ftyp = atom('ftyp', [...ascii.encode('M4A '), ...be32(0)]);
+  final mdat = atom('mdat', sound);
+  List<int> moov(int chunk1) {
+    final stco = atom('stco', [...be32(0), ...be32(2), ...be32(chunk1), ...be32(chunk1 + 10)]);
+    final track = atom('trak', atom('mdia', atom('minf', atom('stbl', stco))));
+    final ilst = atom('ilst', [
+      ...textItem('\xA9nam', 'Old title'),
+      ...atom('gnre', atom('data', [...be32(0), ...be32(0), 0, 3])),
+      ...atom('trkn', atom('data', [...be32(0), ...be32(0), 0, 0, 0, 2, 0, 9, 0, 0])),
+      ...customItem,
+    ]);
+    final meta = atom('meta', [...be32(0), ...atom('hdlr', List.filled(25, 0)), ...ilst]);
+    return atom('moov', [...mvhd, ...track, ...atom('udta', meta)]);
+  }
+
+  if (mdatFirst) return [...ftyp, ...mdat, ...moov(ftyp.length + 8)];
+  final size = moov(0).length;
+  return [...ftyp, ...moov(ftyp.length + size + 8), ...mdat];
+}
+
+/// The place of an M4A file's first chunk of audio, as its stco atom says.
+int firstChunk(List<int> file) {
+  final at = latin1.decode(file).indexOf('stco') + 12;
+  return ByteData.sublistView(Uint8List.fromList(file)).getUint32(at);
+}
+
+/// One Ogg page holding [packets] in full, as a stream's header pages do.
+List<int> oggPage(int sequence, List<List<int>> packets, {int flags = 0, int granule = 0}) {
+  final lacing = [
+    for (final packet in packets) ...[
+      ...List.filled(packet.length ~/ 255, 255),
+      packet.length % 255,
+    ],
+  ];
+  return [
+    ...ascii.encode('OggS'), 0, flags,
+    ...le32(granule), 0, 0, 0, 0,
+    1, 2, 3, 4,
+    ...le32(sequence),
+    0, 0, 0, 0,
+    lacing.length,
+    ...lacing,
+    for (final packet in packets) ...packet,
+  ];
+}
+
+List<int> vorbisComments(List<String> comments) => [
+  ...le32(4), ...ascii.encode('test'), ...le32(comments.length),
+  for (final c in comments) ...[...le32(utf8.encode(c).length), ...utf8.encode(c)],
+];
+
+const oggComments = ['TITLE=Old title', 'ARTIST=Old artist', 'REPLAYGAIN_TRACK_GAIN=-6.50 dB'];
+
+/// An Opus file: its two header packets, then two pages of audio.
+List<int> opus() => [
+  ...oggPage(0, [[...ascii.encode('OpusHead'), 1, 2, 0, 0, 0x80, 0xBB, 0, 0, 0, 0, 0]], flags: 2),
+  ...oggPage(1, [[...ascii.encode('OpusTags'), ...vorbisComments(oggComments)]]),
+  ...oggPage(2, [List.generate(300, (i) => i & 0xFF)], granule: 960),
+  ...oggPage(3, [List.generate(100, (i) => (i * 3) & 0xFF)], flags: 4, granule: 1920),
+];
+
+/// An Ogg Vorbis file: comments and setup share a page, as encoders do it.
+List<int> oggVorbis() => [
+  ...oggPage(0, [[1, ...ascii.encode('vorbis'), ...le32(0), 2, ...le32(44100), ...le32(0), ...le32(192000), ...le32(0), 0xB8, 1]], flags: 2),
+  ...oggPage(1, [
+    [3, ...ascii.encode('vorbis'), ...vorbisComments(oggComments), 1],
+    [5, ...ascii.encode('vorbis'), 9, 8, 7],
+  ]),
+  ...oggPage(2, [List.generate(300, (i) => i & 0xFF)], flags: 4, granule: 960),
+];
+
+/// The pages of an Ogg file: their numbers, in order, and what's in them.
+List<({int sequence, int flags, List<int> body})> oggPages(List<int> file) {
+  final view = ByteData.sublistView(Uint8List.fromList(file));
+  final pages = <({int sequence, int flags, List<int> body})>[];
+  var at = 0;
+  while (at < file.length) {
+    final segments = file[at + 26];
+    final size = file.sublist(at + 27, at + 27 + segments).fold(0, (a, b) => a + b);
+    final start = at + 27 + segments;
+    pages.add((sequence: view.getUint32(at + 18, Endian.little), flags: file[at + 5], body: file.sublist(start, start + size)));
+    at = start + size;
+  }
+  return pages;
+}
+
 /// Stands in for the audio after the tags: must come through untouched.
 final audio = List.generate(5000, (i) => (i * 7) & 0xFF);
 
@@ -329,9 +432,131 @@ void main() {
     expect(await DesktopLibrary.embeddedLyrics(songAt(path)), 'Hidden words');
   });
 
-  test('only MP3 and FLAC can be edited', () {
-    expect(TagEditor.canEdit(Song(id: 1, title: 't', uri: 'x', path: '/m/a.MP3')), isTrue);
-    expect(TagEditor.canEdit(Song(id: 1, title: 't', uri: 'x', path: '/m/a.flac')), isTrue);
-    expect(TagEditor.canEdit(Song(id: 1, title: 't', uri: 'x', path: '/m/a.ogg')), isFalse);
+  test('M4A: tags change, others stay, and audio after the tags is still found', () async {
+    final path = '${dir.path}/song.m4a';
+    final original = m4a(audio);
+    File(path).writeAsBytesSync(original);
+    await TagEditor.save(songAt(path), const TagChanges(title: 'A much longer new title', artist: 'New artist', genre: 'Jazz'));
+
+    final file = File(path).readAsBytesSync();
+    final text = latin1.decode(file);
+    final tags = readMetadata(File(path));
+    expect(tags.title, 'A much longer new title');
+    expect(tags.artist, 'New artist');
+    expect(tags.genres, ['Jazz']);
+    expect(tags.trackNumber, 2);
+    expect(tags.trackTotal, 9);
+    expect(text, contains('com.apple.iTunes'));
+    expect(text, isNot(contains('gnre')));
+    expect(firstChunk(file), text.indexOf('mdat') + 4);
+    expect(firstChunk(file), isNot(firstChunk(original)));
+    expect(file.sublist(file.length - audio.length), audio);
+  });
+
+  test('M4A: with the audio first, the audio stays where it was', () async {
+    final path = '${dir.path}/song.m4a';
+    final original = m4a(audio, mdatFirst: true);
+    File(path).writeAsBytesSync(original);
+    await TagEditor.save(songAt(path), const TagChanges(title: 'A much longer new title'));
+
+    final file = File(path).readAsBytesSync();
+    expect(firstChunk(file), firstChunk(original));
+    expect(file.sublist(firstChunk(file), firstChunk(file) + audio.length), audio);
+  });
+
+  test('M4A: a track number keeps its total, and a file with no tags gets some', () async {
+    final path = '${dir.path}/song.m4a';
+    File(path).writeAsBytesSync(m4a(audio));
+    await TagEditor.save(songAt(path), const TagChanges(track: '3', disc: '1/2'));
+    var tags = readMetadata(File(path));
+    expect((tags.trackNumber, tags.trackTotal, tags.discNumber, tags.totalDisc), (3, 9, 1, 2));
+
+    final bare = '${dir.path}/bare.m4a';
+    final ftyp = atom('ftyp', [...ascii.encode('M4A '), ...be32(0)]);
+    File(bare).writeAsBytesSync([...ftyp, ...atom('moov', [...mvhd, ...atom('trak', [])]), ...atom('mdat', audio)]);
+    await TagEditor.save(songAt(bare), TagChanges(title: 'New', lyrics: 'Some words', cover: Uint8List.fromList([1, 2, 3])));
+    tags = readMetadata(File(bare), getImage: true);
+    expect(tags.title, 'New');
+    expect(tags.lyrics, 'Some words');
+    expect(tags.pictures.single.bytes, [1, 2, 3]);
+  });
+
+  test('M4A: emptied fields are taken out', () async {
+    final path = '${dir.path}/song.m4a';
+    File(path).writeAsBytesSync(m4a(audio));
+    await TagEditor.save(songAt(path), const TagChanges(track: '', title: 'New'));
+    expect(latin1.decode(File(path).readAsBytesSync()), isNot(contains('trkn')));
+  });
+
+  test('M4A: a damaged file is left as it was', () async {
+    final path = '${dir.path}/song.m4a';
+    final original = [...atom('ftyp', ascii.encode('M4A ')), ...be32(9999), ...ascii.encode('moov')];
+    File(path).writeAsBytesSync(original);
+    await expectLater(TagEditor.save(songAt(path), const TagChanges(title: 'New')), throwsA(isA<TagEditException>()));
+    expect(File(path).readAsBytesSync(), original);
+  });
+
+  test('M4A: a file that doesn’t start as an MP4 should is left as it was', () async {
+    final path = '${dir.path}/song.m4a';
+    final original = [...atom('free', [0, 0]), ...atom('moov', [1, 2, 3])];
+    File(path).writeAsBytesSync(original);
+    await expectLater(TagEditor.save(songAt(path), const TagChanges(title: 'New')), throwsA(isA<TagEditException>()));
+    expect(File(path).readAsBytesSync(), original);
+  });
+
+  test('Opus: tags change, others stay, and audio pages are numbered on', () async {
+    final path = '${dir.path}/song.opus';
+    File(path).writeAsBytesSync(opus());
+    final cover = Uint8List.fromList(List.generate(70000, (i) => i & 0xFF));
+    await TagEditor.save(songAt(path), TagChanges(title: 'New title', lyrics: 'Some words', cover: cover));
+
+    final file = File(path).readAsBytesSync();
+    final tags = readMetadata(File(path), getImage: true);
+    expect(tags.title, 'New title');
+    expect(tags.artist, 'Old artist');
+    expect(tags.lyrics, 'Some words');
+    expect(tags.pictures.single.bytes, cover);
+    final pages = oggPages(file);
+    expect([for (final page in pages) page.sequence], List.generate(pages.length, (i) => i));
+    expect(pages.first.flags, 2);
+    // The comment no longer fits one page: the next carries it on.
+    expect(pages[2].flags, 1);
+    expect(pages.last.flags, 4);
+    expect(pages.last.body, oggPages(opus()).last.body);
+    expect(latin1.decode(file), contains('REPLAYGAIN_TRACK_GAIN=-6.50 dB'));
+  });
+
+  test('Ogg Vorbis: the setup sharing the comment’s page comes through', () async {
+    final path = '${dir.path}/song.ogg';
+    File(path).writeAsBytesSync(oggVorbis());
+    await TagEditor.save(songAt(path), const TagChanges(title: 'New title', year: '1999'));
+
+    final tags = readMetadata(File(path));
+    expect(tags.title, 'New title');
+    expect(tags.year?.year, 1999);
+    final pages = oggPages(File(path).readAsBytesSync());
+    expect(pages, hasLength(4));
+    expect(pages[2].body, [5, ...ascii.encode('vorbis'), 9, 8, 7]);
+    // The comment keeps Vorbis's closing bit.
+    expect(pages[1].body.last, 1);
+    expect(pages.last.body, oggPages(oggVorbis()).last.body);
+  });
+
+  test('Ogg files holding anything else are left as they were', () async {
+    final path = '${dir.path}/song.ogg';
+    final original = oggPage(0, [ascii.encode('fishead\x00')], flags: 2);
+    File(path).writeAsBytesSync(original);
+    await expectLater(TagEditor.save(songAt(path), const TagChanges(title: 'New')), throwsA(isA<TagEditException>()));
+    expect(File(path).readAsBytesSync(), original);
+  });
+
+  test('which files can be edited', () {
+    bool canEdit(String name) => TagEditor.canEdit(Song(id: 1, title: 't', uri: 'x', path: '/m/$name'));
+    for (final name in ['a.MP3', 'a.flac', 'a.ogg', 'a.oga', 'a.opus', 'a.m4a', 'a.m4b', 'a.mp4']) {
+      expect(canEdit(name), isTrue, reason: name);
+    }
+    for (final name in ['a.wav', 'a.wma', 'a.aac']) {
+      expect(canEdit(name), isFalse, reason: name);
+    }
   });
 }

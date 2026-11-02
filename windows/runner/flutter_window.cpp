@@ -45,6 +45,8 @@ bool FlutterWindow::OnCreate() {
       flutter_controller_->engine()->messenger(), GetHandle());
   waveform_ = std::make_unique<Waveform>(
       flutter_controller_->engine()->messenger(), GetHandle());
+  discord_status_ = std::make_unique<DiscordStatus>(
+      flutter_controller_->engine()->messenger());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -65,6 +67,7 @@ bool FlutterWindow::OnCreate() {
 
 void FlutterWindow::OnDestroy() {
   media_controls_ = nullptr;
+  discord_status_ = nullptr;
   open_files_ = nullptr;
   output_watch_ = nullptr;
   share_ = nullptr;

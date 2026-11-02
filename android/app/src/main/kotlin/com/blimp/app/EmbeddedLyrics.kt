@@ -280,9 +280,10 @@ object EmbeddedLyrics {
     }
 
     /**
-     * The Ogg pages before the audio (granule position 0) hold the stream's
-     * headers, the comments among them; their payloads are joined, since the
-     * comments (and any cover art in them) can span many pages.
+     * The Ogg pages before the audio hold the stream's headers, the comments
+     * among them; their payloads are joined, since the comments (and any cover
+     * art in them) can span many pages. These pages have a granule position of
+     * 0, or -1 when a long comment carries on past them.
      */
     private fun ogg(source: ByteSource): Map<String, String>? {
         val headers = java.io.ByteArrayOutputStream()
@@ -296,7 +297,7 @@ object EmbeddedLyrics {
             val segments = page[26].toInt() and 0xFF
             val table = source.read(pos + 27, segments)
             val payload = table.sumOf { it.toInt() and 0xFF }
-            if (!first && granule != 0L) break
+            if (!first && granule != 0L && granule != -1L) break
             headers.write(source.read(pos + 27 + segments, payload))
             pos += 27 + segments + payload
             first = false

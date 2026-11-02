@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "background.h"
+#include "discord_status.h"
 #include "media_controls.h"
 #include "open_files.h"
 #include "output_watch.h"
@@ -65,6 +66,9 @@ class FlutterWindow : public Win32Window {
 
   // The visualizer's audio.
   std::unique_ptr<Visualizer> visualizer_;
+
+  // The song playing, on the user's Discord profile.
+  std::unique_ptr<DiscordStatus> discord_status_;
 
   // Whether the window was maximized when last closed, so it opens that way.
   bool show_maximized_ = false;
