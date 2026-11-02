@@ -10,6 +10,7 @@ import 'screens/app_shell.dart';
 import 'services/car_browser.dart';
 import 'services/desktop_library.dart';
 import 'services/desktop_window.dart';
+import 'services/discord_status.dart';
 import 'services/home_widgets.dart';
 import 'services/media_controls.dart';
 import 'services/music_controller.dart';
@@ -61,6 +62,8 @@ Future<void> main() async {
   // The media keys and Windows' media flyout; the phone gets these from the
   // playback notification.
   if (isDesktop) DesktopMediaControls(controller);
+  // The song playing on the user's Discord profile, if they've turned it on.
+  if (Platform.isWindows) DiscordStatus(controller);
   // Closing the window to the tray, to keep playing; asked until remembered.
   if (Platform.isWindows) DesktopWindow.init(controller, ask: askCloseAction);
   controller.init();

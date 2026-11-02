@@ -12,6 +12,7 @@ import '../services/desktop_library.dart';
 import '../services/desktop_window.dart';
 import '../services/device_files.dart';
 import '../services/lyrics_finder.dart';
+import '../services/desktop_equalizer.dart';
 import '../services/music_controller.dart';
 import '../theme.dart';
 import '../widgets/app_menu.dart';
@@ -19,6 +20,7 @@ import '../widgets/shelf.dart';
 import '../widgets/song_options.dart';
 import '../widgets/tag_gaps_view.dart';
 import 'duplicates_screen.dart';
+import 'lossless_check_screen.dart';
 
 /// The top-level settings list.
 class SettingsScreen extends StatelessWidget {
@@ -117,7 +119,9 @@ class PlaybackSettingsScreen extends StatelessWidget {
           ),
           _SettingsTile(
             title: 'Fade between songs',
-            subtitle: music.fadeSeconds == 0 ? 'Off' : 'Fade out and in over ${music.fadeSeconds} seconds',
+            subtitle: music.fadeSeconds == 0
+                ? 'Off'
+                : 'Fade out and in over ${music.fadeSeconds} seconds, skipping silence at the ends of songs',
             onTap: () => _pickOption(
               context,
               title: 'Fade between songs',
@@ -132,7 +136,7 @@ class PlaybackSettingsScreen extends StatelessWidget {
             subtitle: music.speed == 1 ? 'Normal' : formatSpeed(music.speed),
             onTap: () => showSpeedPicker(context),
           ),
-          if (music.equalizer != null)
+          if (music.hasEqualizer)
             _SettingsTile(
               title: 'Equalizer',
               subtitle: music.equalizerEnabled ? 'On' : 'Off',
@@ -214,55 +218,148 @@ class EqualizerScreen extends StatelessWidget {
     final music = MusicScope.of(context, const {MusicAspect.settings});
     return Scaffold(
       appBar: AppBar(title: const Text('Equalizer')),
-      body: FutureBuilder<AndroidEqualizerParameters>(
-        future: music.equalizer!.parameters,
-        builder: (context, snapshot) {
-          final params = snapshot.data;
-          return ListView(
-            children: [
-              _SwitchTile(title: 'Use equalizer', value: music.equalizerEnabled, onChanged: music.setEqualizerEnabled),
-              const Divider(),
-              if (params == null)
-                const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: MessageView(icon: Icons.equalizer, text: 'Play a song to adjust the equalizer.'),
-                )
-              else
-                AnimatedOpacity(
-                  duration: const Duration(milliseconds: 200),
-                  opacity: music.equalizerEnabled ? 1 : 0.4,
-                  child: IgnorePointer(
-                    ignoring: !music.equalizerEnabled,
-                    child: _Bands(params: params, presets: _presets, formatHz: _formatHz),
-                  ),
-                ),
-            ],
-          );
+      body: music.equalizer == null
+          ? _page(music, _DesktopBands(presets: _presets, formatHz: _formatHz))
+          : FutureBuilder<AndroidEqualizerParameters>(
+              future: music.equalizer!.parameters,
+              builder: (context, snapshot) {
+                final params = snapshot.data;
+                return _page(
+                  music,
+                  params == null ? null : _AndroidBands(params: params, presets: _presets, formatHz: _formatHz),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _page(MusicController music, Widget? bands) => ListView(
+    children: [
+      _SwitchTile(title: 'Use equalizer', value: music.equalizerEnabled, onChanged: music.setEqualizerEnabled),
+      const Divider(),
+      if (bands == null)
+        const Padding(
+          padding: EdgeInsets.all(32),
+          child: MessageView(icon: Icons.equalizer, text: 'Play a song to adjust the equalizer.'),
+        )
+      else
+        AnimatedOpacity(
+          duration: const Duration(milliseconds: 200),
+          opacity: music.equalizerEnabled ? 1 : 0.4,
+          child: IgnorePointer(ignoring: !music.equalizerEnabled, child: bands),
+        ),
+    ],
+  );
+}
+
+/// Android's bands, which the phone decides and which change as they're set.
+class _AndroidBands extends StatelessWidget {
+  const _AndroidBands({required this.params, required this.presets, required this.formatHz});
+
+  final AndroidEqualizerParameters params;
+  final List<_Preset> presets;
+  final String Function(double) formatHz;
+
+  @override
+  Widget build(BuildContext context) {
+    final music = MusicScope.read(context);
+    return _BandLayout(
+      frequencies: [for (final band in params.bands) band.centerFrequency],
+      gains: [for (final band in params.bands) band.gain],
+      minDecibels: params.minDecibels,
+      maxDecibels: params.maxDecibels,
+      presets: presets,
+      onPreset: music.setEqualizerGains,
+      bandBuilder: (i) {
+        final band = params.bands[i];
+        return StreamBuilder<double>(
+          stream: band.gainStream,
+          initialData: band.gain,
+          builder: (context, snapshot) => _BandSlider(
+            gain: snapshot.data ?? 0,
+            minDecibels: params.minDecibels,
+            maxDecibels: params.maxDecibels,
+            label: formatHz(band.centerFrequency),
+            onChanged: band.setGain,
+            onChangeEnd: (_) => music.saveEqualizerGains(params),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Windows's fixed bands. The sound changes when a slider is let go, as
+/// mpv's filters restart with a small click whenever they change.
+class _DesktopBands extends StatefulWidget {
+  const _DesktopBands({required this.presets, required this.formatHz});
+
+  final List<_Preset> presets;
+  final String Function(double) formatHz;
+
+  @override
+  State<_DesktopBands> createState() => _DesktopBandsState();
+}
+
+class _DesktopBandsState extends State<_DesktopBands> {
+  /// The gains while a slider is being dragged.
+  List<double>? _dragging;
+
+  @override
+  Widget build(BuildContext context) {
+    final music = MusicScope.of(context, const {MusicAspect.settings});
+    final gains = _dragging ?? music.desktopEqualizerGains;
+    return _BandLayout(
+      frequencies: DesktopEqualizer.frequencies,
+      gains: gains,
+      minDecibels: DesktopEqualizer.minDecibels,
+      maxDecibels: DesktopEqualizer.maxDecibels,
+      presets: widget.presets,
+      onPreset: music.setDesktopEqualizerGains,
+      bandBuilder: (i) => _BandSlider(
+        gain: gains[i],
+        minDecibels: DesktopEqualizer.minDecibels,
+        maxDecibels: DesktopEqualizer.maxDecibels,
+        label: widget.formatHz(DesktopEqualizer.frequencies[i]),
+        onChanged: (gain) => setState(() => _dragging = [...gains]..[i] = gain),
+        onChangeEnd: (_) {
+          final done = _dragging;
+          setState(() => _dragging = null);
+          if (done != null) music.setDesktopEqualizerGains(done);
         },
       ),
     );
   }
 }
 
-class _Bands extends StatelessWidget {
-  const _Bands({required this.params, required this.presets, required this.formatHz});
+/// The presets above a slider for each band.
+class _BandLayout extends StatelessWidget {
+  const _BandLayout({
+    required this.frequencies,
+    required this.gains,
+    required this.minDecibels,
+    required this.maxDecibels,
+    required this.presets,
+    required this.onPreset,
+    required this.bandBuilder,
+  });
 
-  final AndroidEqualizerParameters params;
+  final List<double> frequencies;
+  final List<double> gains;
+  final double minDecibels;
+  final double maxDecibels;
   final List<_Preset> presets;
-  final String Function(double) formatHz;
+  final ValueChanged<List<double>> onPreset;
+  final Widget Function(int band) bandBuilder;
 
   List<double> _presetGains(_Preset preset) => [
-    for (final band in params.bands)
-      preset.gain(band.centerFrequency).clamp(params.minDecibels, params.maxDecibels).toDouble(),
+    for (final hz in frequencies) preset.gain(hz).clamp(minDecibels, maxDecibels).toDouble(),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final music = MusicScope.read(context);
-    final textTheme = Theme.of(context).textTheme;
-
     // Highlight the preset the current gains match, if any.
-    final current = [for (final band in params.bands) band.gain];
+    final current = gains;
     final selected = presets.indexWhere((p) {
       final gains = _presetGains(p);
       return [for (var i = 0; i < gains.length; i++) (gains[i] - current[i]).abs() < 0.05].every((ok) => ok);
@@ -275,44 +372,58 @@ class _Bands extends StatelessWidget {
         ChipBar(
           labels: [for (final p in presets) p.name],
           selected: selected < 0 ? null : selected,
-          onSelected: (i) => music.setEqualizerGains(_presetGains(presets[i])),
+          onSelected: (i) => onPreset(_presetGains(presets[i])),
         ),
         const SizedBox(height: 16),
         SizedBox(
           height: 300,
           child: Row(
             children: [
-              for (final band in params.bands)
-                Expanded(
-                  child: StreamBuilder<double>(
-                    stream: band.gainStream,
-                    initialData: band.gain,
-                    builder: (context, snapshot) {
-                      final gain = snapshot.data ?? 0;
-                      return Column(
-                        children: [
-                          Text('${gain > 0 ? '+' : ''}${gain.toStringAsFixed(1)} dB', style: textTheme.labelSmall),
-                          Expanded(
-                            child: RotatedBox(
-                              quarterTurns: 3,
-                              child: Slider(
-                                value: gain.clamp(params.minDecibels, params.maxDecibels),
-                                min: params.minDecibels,
-                                max: params.maxDecibels,
-                                onChanged: band.setGain,
-                                onChangeEnd: (_) => music.saveEqualizerGains(params),
-                              ),
-                            ),
-                          ),
-                          Text(formatHz(band.centerFrequency), style: textTheme.labelSmall),
-                        ],
-                      );
-                    },
-                  ),
-                ),
+              for (var i = 0; i < frequencies.length; i++) Expanded(child: bandBuilder(i)),
             ],
           ),
         ),
+      ],
+    );
+  }
+}
+
+class _BandSlider extends StatelessWidget {
+  const _BandSlider({
+    required this.gain,
+    required this.minDecibels,
+    required this.maxDecibels,
+    required this.label,
+    required this.onChanged,
+    required this.onChangeEnd,
+  });
+
+  final double gain;
+  final double minDecibels;
+  final double maxDecibels;
+  final String label;
+  final ValueChanged<double> onChanged;
+  final ValueChanged<double> onChangeEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      children: [
+        Text('${gain > 0 ? '+' : ''}${gain.toStringAsFixed(1)} dB', style: textTheme.labelSmall),
+        Expanded(
+          child: RotatedBox(
+            quarterTurns: 3,
+            child: Slider(
+              value: gain.clamp(minDecibels, maxDecibels),
+              min: minDecibels,
+              max: maxDecibels,
+              onChanged: onChanged,
+              onChangeEnd: onChangeEnd,
+            ),
+          ),
+        ),
+        Text(label, style: textTheme.labelSmall),
       ],
     );
   }
@@ -362,6 +473,16 @@ class PrivacySettingsScreen extends StatelessWidget {
               done: 'Search history cleared',
             ),
           ),
+          if (isDesktop) ...[
+            const Divider(),
+            _SwitchTile(
+              title: 'Show what I play on Discord',
+              subtitle:
+                  "While a song plays, people on Discord can see its title, artist, album and cover on your profile. To find the cover, Blimp sends the song's title and artist to Apple's iTunes Search and MusicBrainz. Needs the Discord app open on this PC, and Discord's activity status turned on",
+              value: music.discordStatus.value,
+              onChanged: music.setDiscordStatus,
+            ),
+          ],
         ],
       ),
     );
@@ -521,7 +642,7 @@ class LyricsFinderSettingsScreen extends StatelessWidget {
               title: 'Save lyrics into songs',
               subtitle: music.lyricsToSaveLeft > 0
                   ? 'Saving lyrics: ${music.lyricsToSaveLeft} songs left'
-                  : 'Put found lyrics in your MP3 and FLAC files, so they go wherever the songs go',
+                  : 'Put found lyrics in your music files, so they go wherever the songs go',
               value: music.saveLyricsInFiles,
               onChanged: (on) => on ? _saveInFiles(context) : music.setSaveLyricsInFiles(false),
             ),
@@ -537,7 +658,7 @@ class LyricsFinderSettingsScreen extends StatelessWidget {
               "When it's on, Blimp sends each song's title, artist, album and length to LRCLIB (lrclib.net), a "
               'free public lyrics service, and your internet address is visible to it, as with any website. '
               'Nothing else about you or your music is sent.\n\n'
-              '${music.saveLyricsInFiles ? 'Found lyrics are saved into your MP3 and FLAC files where they can be, otherwise kept in Blimp,' : 'Found lyrics are kept in Blimp, not in your music files,'} and '
+              '${music.saveLyricsInFiles ? 'Found lyrics are saved into your music files where they can be, otherwise kept in Blimp,' : 'Found lyrics are kept in Blimp, not in your music files,'} and '
               "work offline afterwards. A song's own timed lyrics are never replaced. Lyrics come from LRCLIB, "
               'written by its community, so a few may be wrong.',
             ),
@@ -614,6 +735,11 @@ class StorageSettingsScreen extends StatelessWidget {
             title: 'Duplicate songs',
             subtitle: 'Find songs that are here more than once, and remove the extra copies',
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DuplicatesScreen())),
+          ),
+          _SettingsTile(
+            title: 'Check lossless files',
+            subtitle: 'Find FLAC and other lossless files that sound like they were made from an MP3',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LosslessCheckScreen())),
           ),
           _SettingsTile(
             title: 'Ignore short files',

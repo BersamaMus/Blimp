@@ -46,16 +46,22 @@ manager to install unknown apps if it asks.
   [LRCLIB](https://lrclib.net), picking synced lyrics first, then plain ones.
   It only sends a song's title, artist, album and length, and keeps what it finds
   inside Blimp. On Windows you can choose to save lyrics into your music files.
-- **Sound:** gapless playback, hi-res badges, volume normalisation, crossfade,
-  an equalizer, skip silence, and playback speed.
+- **Sound:** gapless playback, hi-res badges, volume normalisation, an
+  equalizer, skip silence, and playback speed.
+- **Fading between songs:** goes by the music, not just the clock. It skips
+  silence at the ends of songs, and leaves alone a song that fades out by itself.
+- **Quick picks:** songs you tend to play at this time of day, mixed with some
+  at random.
 - **Library:** browse by songs, albums, artists, playlists, genres or folders.
   Albums are sorted into Albums, EPs, Singles and Compilations. Search ignores
   accents. Playlists import and export as M3U.
 - **Playlists:** your own, smart playlists that fill themselves by rules
   (genre, plays, rating, when last played and more), and the queue saved as
   a playlist.
-- **Tidy up:** edit songs' tags and lyrics (MP3 and FLAC), rate songs with stars, and
-  find duplicate songs to remove the extra copies.
+- **Tidy up:** edit songs' tags and lyrics (MP3, FLAC, Ogg, Opus and M4A), rate
+  songs with stars, and find duplicate songs to remove the extra copies.
+- **Check lossless files:** finds FLACs and other lossless files that sound like
+  they were made from an MP3, and hi-res files that are really CD quality.
 - **Listening stats:** top songs, artists and genres, and listening time.
 - **Top songs of the year:** a ranked playlist of your most played songs for
   each year you've listened, on the Playlists tab.
@@ -69,7 +75,8 @@ manager to install unknown apps if it asks.
 - **Backups:** save your playlists, favourites, history, stats and settings to
   one file, and restore them on another device.
 - **Private:** Blimp collects nothing, and only goes online if you search for
-  lyrics or, on Windows, for missing tags.
+  lyrics or, on Windows, for missing tags, or for Discord covers if you turn on
+  the Discord status.
 
 ### On Windows
 
@@ -81,9 +88,13 @@ manager to install unknown apps if it asks.
 - Pauses when headphones are unplugged.
 - Keyboard shortcuts: Space plays and pauses, Ctrl+Left and Ctrl+Right skip,
   Ctrl+F searches.
-- Find missing tags, in Settings: lists MP3 and FLAC songs missing tags or
-  covers and fills them in with one click from iTunes Search and MusicBrainz,
+- Find missing tags, in Settings: lists songs missing tags or covers and fills
+  them in with one click from iTunes Search and MusicBrainz,
   leaving tags you already have.
+- Show what you're playing on your Discord profile, with covers found on iTunes
+  Search, MusicBrainz and the Cover Art Archive and a link to the song on
+  YouTube Music, through the Discord app on your PC. Off until you turn it on in
+  Settings > Privacy & data.
 
 ### On Android
 

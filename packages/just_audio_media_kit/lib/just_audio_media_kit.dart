@@ -48,11 +48,21 @@ class JustAudioMediaKit extends JustAudioPlatform {
   /// [the related issue](https://github.com/Pato05/just_audio_media_kit/issues/11) for more information
   static bool prefetchPlaylist = false;
 
+  /// Blimp: the lavfi filters of the equalizer; null for none.
+  static String? equalizer;
+
   static final _logger = Logger('JustAudioMediaKit');
   final _players = HashMap<String, MediaKitPlayer>();
 
   /// Players that are disposing (player id -> future that completes when the player is disposed)
   final _disposingPlayers = HashMap<String, Future<void>>();
+
+  /// Blimp: sets [equalizer] and applies it to the players already made.
+  static Future<void> setEqualizer(String? filter) async {
+    equalizer = filter;
+    final current = _instance?._players.values ?? const <MediaKitPlayer>[];
+    await Future.wait(current.map((player) => player.applyEqualizer()));
+  }
 
   /// Initializes the plugin if the platform we're running on is marked
   /// as true, otherwise it will leave everything unchanged.
@@ -81,8 +91,11 @@ class JustAudioMediaKit extends JustAudioPlatform {
 
   /// Registers the plugin with [JustAudioPlatform]
   static void registerWith() {
-    JustAudioPlatform.instance = JustAudioMediaKit();
+    JustAudioPlatform.instance = _instance = JustAudioMediaKit();
   }
+
+  /// Blimp: the plugin itself, for [setEqualizer].
+  static JustAudioMediaKit? _instance;
 
   @override
   Future<AudioPlayerPlatform> init(InitRequest request) async {

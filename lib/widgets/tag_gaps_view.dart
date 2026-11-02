@@ -97,7 +97,7 @@ class _TagGapsViewState extends State<TagGapsView> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
                 child: Text(
-                  '${tagFinder.unsupported} more in formats Blimp can’t save tags to. Only MP3 and FLAC can be filled in.',
+                  '${tagFinder.unsupported} more in formats Blimp can’t save tags to. Only MP3, FLAC, Ogg, Opus and M4A can be filled in.',
                   style: textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                 ),
               ),

@@ -22,4 +22,10 @@ are the changes:
   happen first. The song then started from 0:00. It's now noted before
   opening, and sought to after opening if the duration has already come.
 
+- An equalizer (`JustAudioMediaKit.equalizer`, `setEqualizer`). mpv's filter
+  list is added to by label, so speed changes can't lose it: media_kit replaces
+  the whole list on every speed or pitch change, so it's added again after
+  each. This mpv's lavfi has the `equalizer` filter but no `aresample` to
+  convert samples for it, so mpv's own `format` filter goes first.
+
 The example app was left out.

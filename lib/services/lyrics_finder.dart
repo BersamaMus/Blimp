@@ -137,7 +137,7 @@ const lyricsPrivacyNotice =
 
 /// Said before the lyrics finder is allowed to change the user's files.
 const saveLyricsNotice =
-    "Found lyrics will be saved into your MP3 and FLAC files, so they go wherever the songs go. This "
+    "Found lyrics will be saved into your MP3, FLAC, Ogg, Opus and M4A files, so they go wherever the songs go. This "
     "can't be undone with Remove found lyrics, though you can edit a song's lyrics in its tags.\n\n"
     "Lyrics a song already has are never replaced. A song that has its own, is in another format, or "
     "is playing keeps its found lyrics in Blimp instead.";

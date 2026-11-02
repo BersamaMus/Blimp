@@ -274,6 +274,15 @@ abstract final class DesktopLibrary {
     return bytes;
   }
 
+  /// Decodes pieces of the file at [path]; see [MediaLibrary.readAudio].
+  static Future<Map<Object?, Object?>?> readAudio(String path, Float64List starts, double seconds, int every) =>
+      _waveformChannel.invokeMapMethod<Object?, Object?>('samples', {
+        'path': path,
+        'starts': starts,
+        'seconds': seconds,
+        'every': every,
+      });
+
   /// The saved PNG of the song's cover at [size], made if it isn't yet;
   /// null if the song has no cover.
   static Future<File?> _artworkFile(int songId, int size) async {
@@ -353,7 +362,7 @@ abstract final class DesktopLibrary {
   // Scanning, in background isolates.
 
   /// Bump when [_read] learns something new, so files are read afresh.
-  static const _cacheVersion = 2;
+  static const _cacheVersion = 3;
 
   static Future<List<Map<String, Object?>>> _scan(String root, String cachePath) async {
     final cacheFile = File(cachePath);
@@ -455,7 +464,9 @@ abstract final class DesktopLibrary {
     final folder = path.substring(0, path.lastIndexOf('/'));
     final album = _text(tags?.album);
     final albumArtist = _text(tags?.albumArtist);
-    final lossless = const {'flac', 'wav', 'aiff', 'aif', 'alac'}.contains(ext);
+    // M4A can be either, so only the file itself can say.
+    final alac = ext == 'm4a' && isAlac(file);
+    final lossless = alac || const {'flac', 'wav', 'aiff', 'aif', 'alac'}.contains(ext);
     return {
       // Windows paths ignore case, so the same file keeps its id however
       // it's spelled.
@@ -477,7 +488,7 @@ abstract final class DesktopLibrary {
       'size': size,
       'path': path,
       // As AudioFormat.fromMap reads them.
-      'mime': _mimes[ext],
+      'mime': alac ? 'audio/alac' : _mimes[ext],
       'sampleRate': header?.sampleRate ?? tags?.sampleRate,
       // Lossless files show bit depth instead, and the reader's figure for
       // them isn't a bitrate; left out, it's worked out from size and length.
@@ -503,6 +514,59 @@ abstract final class DesktopLibrary {
     'aiff': 'audio/aiff',
     'aif': 'audio/aiff',
   };
+
+  /// Whether the MP4 [file] holds ALAC. False if it can't be read.
+  static bool isAlac(File file) {
+    final RandomAccessFile reader;
+    try {
+      reader = file.openSync();
+    } on FileSystemException {
+      return false;
+    }
+    try {
+      return _holdsAlac(reader, 0, reader.lengthSync());
+    } on FileSystemException {
+      return false;
+    } finally {
+      reader.closeSync();
+    }
+  }
+
+  /// The boxes that lead down to a track's description of its audio.
+  static const _mp4Path = {'moov', 'trak', 'mdia', 'minf', 'stbl'};
+
+  /// Whether a track described between [from] and [to] is ALAC. Goes by the
+  /// boxes' sizes, as the part that matters can be anywhere in the file.
+  static bool _holdsAlac(RandomAccessFile reader, int from, int to) {
+    var at = from;
+    while (at + 8 <= to) {
+      reader.setPositionSync(at);
+      final head = reader.readSync(16);
+      if (head.length < 8) return false;
+      final data = ByteData.sublistView(head);
+      final name = ascii.decode(head.sublist(4, 8), allowInvalid: true);
+      var size = data.getUint32(0);
+      var body = 8;
+      if (size == 1) {
+        if (head.length < 16) return false;
+        size = data.getUint64(8);
+        body = 16;
+      } else if (size == 0) {
+        // Runs to the end of the file.
+        size = to - at;
+      }
+      if (size < body || at + size > to) return false;
+      if (name == 'stsd') {
+        // A version and count, then the first entry's size and its format.
+        reader.setPositionSync(at + body + 12);
+        if (ascii.decode(reader.readSync(4), allowInvalid: true) == 'alac') return true;
+      } else if (_mp4Path.contains(name) && _holdsAlac(reader, at + body, at + size)) {
+        return true;
+      }
+      at += size;
+    }
+    return false;
+  }
 
   /// The reader gives some formats' bitrates in kbps and others in bps.
   static int? _bitsPerSecond(int? rate) => switch (rate) {

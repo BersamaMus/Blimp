@@ -116,6 +116,12 @@ FoundTags? _pick(Iterable<_Candidate> candidates, String title, String? artist, 
 
 int? _yearOf(Object? date) => date is String ? int.tryParse(date.split('-').first) : null;
 
+/// The address to search iTunes for a song.
+Uri iTunesSearch(String title, String? artist) {
+  final term = [?artist, plainTitle(title)].join(' ');
+  return Uri.https('itunes.apple.com', '/search', {'term': term, 'entity': 'song', 'limit': '25'});
+}
+
 /// The result in iTunes Search's [json] that is the song; see [_pick].
 FoundTags? chooseTags(String json, {required String title, String? artist, String? album, Duration? length}) {
   final decoded = jsonDecode(json);
@@ -579,10 +585,8 @@ class TagFinder extends ChangeNotifier {
   }
 
   Future<String> _search(HttpClient client, String title, String? artist) async {
-    final term = [?artist, plainTitle(title)].join(' ');
-    final url = Uri.https('itunes.apple.com', '/search', {'term': term, 'entity': 'song', 'limit': '25'});
     try {
-      final (status, body) = await _get(client, url);
+      final (status, body) = await _get(client, iTunesSearch(title, artist));
       if (status == 403 || status == 429) {
         throw const TagFindException('Apple asked Blimp to slow down. Try again in a few minutes.');
       }

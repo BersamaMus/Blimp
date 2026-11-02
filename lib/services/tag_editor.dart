@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'desktop_library.dart';
@@ -61,9 +63,17 @@ class TagEditException implements Exception {
 abstract final class TagEditor {
   static const _filesChannel = MethodChannel('blimp/files');
 
-  /// MP3 (ID3v2.3 and 2.4 tags) and FLAC.
-  static bool canEdit(Song song) =>
-      const {'mp3', 'flac'}.contains((song.fileName ?? song.uri).split('.').last.toLowerCase());
+  /// MP3 (ID3v2.3 and 2.4 tags), FLAC, Ogg Vorbis, Opus and M4A.
+  static bool canEdit(Song song) => const {
+    'mp3',
+    'flac',
+    'ogg',
+    'oga',
+    'opus',
+    'm4a',
+    'm4b',
+    'mp4',
+  }.contains((song.fileName ?? song.uri).split('.').last.toLowerCase());
 
   /// Saves [changes] into [song]'s file. On a phone, Android asks the user
   /// first; false if they said no. Throws [TagEditException] if it can't be
@@ -72,11 +82,12 @@ abstract final class TagEditor {
   /// Recently Added.
   static Future<bool> save(Song song, TagChanges changes, {bool keepDate = false}) async {
     if (changes.isEmpty) return true;
+    final mp3 = (song.fileName ?? song.uri).toLowerCase().endsWith('.mp3');
     if (isDesktop) {
       final path = song.path;
       if (path == null) throw const TagEditException("Couldn't find the song's file.");
       final edited = '$path.blimp-edit';
-      await _edit(path, edited, changes);
+      await _edit(path, edited, changes, mp3: mp3);
       try {
         final date = keepDate ? await File(path).lastModified() : null;
         // Replaces the old file in one go.
@@ -97,7 +108,7 @@ abstract final class TagEditor {
     if (copy == null) throw const TagEditException("Couldn't read the song's file.");
     final edited = '$copy.edited';
     try {
-      await _edit(copy, edited, changes);
+      await _edit(copy, edited, changes, mp3: mp3);
     } finally {
       await _delete(copy);
     }
@@ -117,18 +128,27 @@ abstract final class TagEditor {
   }
 
   /// Writes [source] with [changes] to [target], off the UI thread, then
-  /// checks the result reads back.
-  static Future<void> _edit(String source, String target, TagChanges changes) async {
+  /// checks the result reads back. Only [mp3] files get an ID3 tag: an MP3 can
+  /// start with anything, but one put on the front of another format moves
+  /// its audio away from where the file says it is.
+  static Future<void> _edit(String source, String target, TagChanges changes, {required bool mp3}) async {
     final error = await Isolate.run(() {
       try {
         final input = File(source);
         final head = input.openSync();
-        final magic = head.readSync(4);
+        final magic = head.readSync(8);
         head.closeSync();
-        if (magic.length == 4 && ascii.decode(magic, allowInvalid: true) == 'fLaC') {
+        final start = latin1.decode(magic);
+        if (start.startsWith('fLaC')) {
           _editFlac(input, File(target), changes);
-        } else {
+        } else if (start.startsWith('OggS')) {
+          _editOgg(input, File(target), changes);
+        } else if (start.length == 8 && start.endsWith('ftyp')) {
+          _editMp4(input, File(target), changes);
+        } else if (mp3) {
           _editMp3(input, File(target), changes);
+        } else {
+          throw const TagEditException('This file is stored in a way Blimp can’t edit.');
         }
         // Read back: a file the reader can't make sense of isn't saved.
         final check = readMetadata(File(target));
@@ -290,15 +310,18 @@ abstract final class TagEditor {
 
   static List<int> _uint32le(int value) => [value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF, (value >> 24) & 0xFF];
 
-  /// Copies [source] from [start] to its end onto [out], a piece at a time.
-  static void _copyFrom(File source, int start, RandomAccessFile out) {
+  /// Copies [source] from [start] up to [end] (or its end) onto [out], a
+  /// piece at a time.
+  static void _copyFrom(File source, int start, RandomAccessFile out, [int? end]) {
     final reader = source.openSync();
     try {
       reader.setPositionSync(start);
-      while (true) {
-        final chunk = reader.readSync(1 << 20);
+      var left = (end ?? reader.lengthSync()) - start;
+      while (left > 0) {
+        final chunk = reader.readSync(min(1 << 20, left));
         if (chunk.isEmpty) break;
         out.writeFromSync(chunk);
+        left -= chunk.length;
       }
     } finally {
       reader.closeSync();
@@ -329,31 +352,74 @@ abstract final class TagEditor {
       reader.closeSync();
     }
 
-    var vendor = 'Blimp';
-    var comments = <String>[];
     final at = blocks.indexWhere((b) => b.type == 4);
+    final (:vendor, :comments, end: _) =
+        at >= 0 ? _readComments(blocks[at].data) : (vendor: 'Blimp', comments: <String>[], end: 0);
+    final comment = (type: 4, data: _writeComments(vendor, _changedComments(comments, changes)));
     if (at >= 0) {
-      final data = ByteData.sublistView(blocks[at].data);
-      final bytes = blocks[at].data;
-      var i = 0;
-      int next32() {
-        final value = data.getUint32(i, Endian.little);
-        i += 4;
-        return value;
-      }
+      blocks[at] = comment;
+    } else {
+      blocks.add(comment);
+    }
+    if (changes.cover case final cover?) blocks.add((type: 6, data: _flacPicture(cover)));
+    blocks.add((type: 1, data: Uint8List(_padding)));
 
-      final vendorLength = next32();
-      vendor = utf8.decode(bytes.sublist(i, i + vendorLength), allowMalformed: true);
-      i += vendorLength;
-      final count = next32();
-      for (var n = 0; n < count && i + 4 <= bytes.length; n++) {
-        final length = next32();
-        if (i + length > bytes.length) break;
-        comments.add(utf8.decode(bytes.sublist(i, i + length), allowMalformed: true));
-        i += length;
+    final out = target.openSync(mode: FileMode.write);
+    try {
+      out.writeFromSync(ascii.encode('fLaC'));
+      for (final (i, b) in blocks.indexed) {
+        final last = i == blocks.length - 1;
+        out
+          ..writeFromSync([(last ? 0x80 : 0) | b.type, (b.data.length >> 16) & 0xFF, (b.data.length >> 8) & 0xFF, b.data.length & 0xFF])
+          ..writeFromSync(b.data);
       }
+      _copyFrom(source, audioStart, out);
+    } finally {
+      out.closeSync();
+    }
+  }
+
+  /// The vendor and comments of a Vorbis comment block in [bytes], and where
+  /// the block ends.
+  static ({String vendor, List<String> comments, int end}) _readComments(Uint8List bytes) {
+    final data = ByteData.sublistView(bytes);
+    var i = 0;
+    int next32() {
+      final value = data.getUint32(i, Endian.little);
+      i += 4;
+      return value;
     }
 
+    final vendorLength = next32();
+    final vendor = utf8.decode(bytes.sublist(i, i + vendorLength), allowMalformed: true);
+    i += vendorLength;
+    final count = next32();
+    final comments = <String>[];
+    for (var n = 0; n < count && i + 4 <= bytes.length; n++) {
+      final length = next32();
+      if (i + length > bytes.length) break;
+      comments.add(utf8.decode(bytes.sublist(i, i + length), allowMalformed: true));
+      i += length;
+    }
+    return (vendor: vendor, comments: comments, end: i);
+  }
+
+  static Uint8List _writeComments(String vendor, List<String> comments) {
+    final block = BytesBuilder()
+      ..add(_uint32le(utf8.encode(vendor).length))
+      ..add(utf8.encode(vendor))
+      ..add(_uint32le(comments.length));
+    for (final comment in comments) {
+      final bytes = utf8.encode(comment);
+      block
+        ..add(_uint32le(bytes.length))
+        ..add(bytes);
+    }
+    return block.takeBytes();
+  }
+
+  /// [comments] with [changes] made, for FLAC and Ogg files alike.
+  static List<String> _changedComments(List<String> comments, TagChanges changes) {
     void set(List<String> keys, String? value) {
       if (value == null) return;
       comments = [
@@ -372,51 +438,374 @@ abstract final class TagEditor {
     set(['TRACKNUMBER'], changes.track);
     set(['DISCNUMBER'], changes.disc);
     set(DesktopLibrary.lyricsKeys, changes.lyrics);
+    return comments;
+  }
 
-    final block = BytesBuilder()
-      ..add(_uint32le(utf8.encode(vendor).length))
-      ..add(utf8.encode(vendor))
-      ..add(_uint32le(comments.length));
-    for (final comment in comments) {
-      final bytes = utf8.encode(comment);
-      block
-        ..add(_uint32le(bytes.length))
-        ..add(bytes);
+  /// A FLAC picture block holding [cover]. Ogg files keep the same block in
+  /// a comment.
+  static Uint8List _flacPicture(Uint8List cover) {
+    final picture = BytesBuilder()
+      // "Front cover", the image type, and no description.
+      ..add(_uint32(3))
+      ..add(_uint32(_coverType.length))
+      ..add(ascii.encode(_coverType))
+      ..add(_uint32(0))
+      // Width, height, colour depth and palette size, which readers take
+      // from the image itself when they're zero.
+      ..add(Uint8List(16))
+      ..add(_uint32(cover.length))
+      ..add(cover);
+    return picture.takeBytes();
+  }
+
+  // -------------------------------------------------------------------------
+  // Ogg Vorbis and Opus: the comment packet
+
+  static void _editOgg(File source, File target, TagChanges changes) {
+    const unsupported = TagEditException('Blimp can only edit tags in plain Ogg Vorbis and Opus files.');
+    const damaged = TagEditException('This Ogg file looks damaged.');
+    final reader = source.openSync();
+    final out = target.openSync(mode: FileMode.write);
+    try {
+      ({Uint8List header, Uint8List lacing, Uint8List body})? nextPage() {
+        final header = reader.readSync(27);
+        if (header.isEmpty) return null;
+        if (header.length < 27 || latin1.decode(header.sublist(0, 4)) != 'OggS') throw damaged;
+        final lacing = reader.readSync(header[26]);
+        if (lacing.length < header[26]) throw damaged;
+        final length = lacing.fold(0, (sum, segment) => sum + segment);
+        final body = reader.readSync(length);
+        if (body.length < length) throw damaged;
+        return (header: header, lacing: lacing, body: body);
+      }
+
+      var page = nextPage() ?? (throw damaged);
+      final serial = page.header.sublist(14, 18);
+      bool sameStream(Uint8List header) => listEquals(header.sublist(14, 18), serial);
+
+      // The packets before the audio: Opus has two, Vorbis three. They end
+      // with a page, so the audio pages after them can be copied whole.
+      final idMagic = latin1.decode(page.body.take(8).toList());
+      final vorbis = idMagic.startsWith('\x01vorbis');
+      if (!vorbis && idMagic != 'OpusHead') throw unsupported;
+      final wanted = vorbis ? 3 : 2;
+      final commentMagic = vorbis ? '\x03vorbis' : 'OpusTags';
+      final packets = <Uint8List>[];
+      final partial = BytesBuilder();
+      while (true) {
+        if (!sameStream(page.header)) throw unsupported;
+        var at = 0;
+        for (final segment in page.lacing) {
+          partial.add(page.body.sublist(at, at + segment));
+          at += segment;
+          if (segment < 255) packets.add(partial.takeBytes());
+        }
+        if (packets.length >= wanted) break;
+        page = nextPage() ?? (throw damaged);
+      }
+      if (packets.length > wanted || partial.isNotEmpty) throw unsupported;
+
+      final comment = packets[1];
+      if (latin1.decode(comment.take(commentMagic.length).toList()) != commentMagic) throw unsupported;
+      final (:vendor, :comments, :end) = _readComments(comment.sublist(commentMagic.length));
+      final changed = [
+        ..._changedComments(comments, changes),
+        if (changes.cover case final cover?) 'METADATA_BLOCK_PICTURE=${base64.encode(_flacPicture(cover))}',
+      ];
+      packets[1] = Uint8List.fromList([
+        ...latin1.encode(commentMagic),
+        ..._writeComments(vendor, changed),
+        // Vorbis's closing bit, or whatever Opus keeps after the comments.
+        ...comment.sublist(commentMagic.length + end),
+      ]);
+
+      var sequence = 0;
+      for (final (i, packet) in packets.indexed) {
+        sequence = _writeOggPacket(out, packet, serial, sequence, first: i == 0);
+      }
+      // The audio, numbered on from the new pages.
+      for (var next = nextPage(); next != null; next = nextPage()) {
+        if (!sameStream(next.header)) throw unsupported;
+        _writeOggPage(out, next.header, next.lacing, next.body, sequence++);
+      }
+    } finally {
+      reader.closeSync();
+      out.closeSync();
     }
-    final comment = (type: 4, data: block.takeBytes());
-    if (at >= 0) {
-      blocks[at] = comment;
-    } else {
-      blocks.add(comment);
+  }
+
+  /// Writes [packet] as pages of its own, numbered from [sequence]; returns
+  /// the next page's number. [first] marks the start of the stream.
+  static int _writeOggPacket(RandomAccessFile out, Uint8List packet, List<int> serial, int sequence, {required bool first}) {
+    const segmentSize = 255, pageSegments = 255;
+    var at = 0;
+    while (true) {
+      final left = packet.length - at;
+      // A packet ends with a segment shorter than 255, even an empty one.
+      final ends = left ~/ segmentSize + 1 <= pageSegments;
+      final segments = ends ? left ~/ segmentSize + 1 : pageSegments;
+      final length = ends ? left : segments * segmentSize;
+      final header = Uint8List(27)..setAll(0, ascii.encode('OggS'));
+      header[5] = at > 0 ? 1 : (first ? 2 : 0);
+      // No packet ends on this page: its position is "none", all ones.
+      if (!ends) header.fillRange(6, 14, 0xFF);
+      header.setAll(14, serial);
+      header[26] = segments;
+      final lacing = Uint8List(segments)..fillRange(0, segments, segmentSize);
+      if (ends) lacing[segments - 1] = left % segmentSize;
+      _writeOggPage(out, header, lacing, packet.sublist(at, at + length), sequence++);
+      at += length;
+      if (ends) return sequence;
     }
-    if (changes.cover case final cover?) {
-      final picture = BytesBuilder()
-        // "Front cover", the image type, and no description.
-        ..add(_uint32(3))
-        ..add(_uint32(_coverType.length))
-        ..add(ascii.encode(_coverType))
-        ..add(_uint32(0))
-        // Width, height, colour depth and palette size, which readers take
-        // from the image itself when they're zero.
-        ..add(Uint8List(16))
-        ..add(_uint32(cover.length))
-        ..add(cover);
-      blocks.add((type: 6, data: picture.takeBytes()));
+  }
+
+  /// Writes a page as number [sequence], with its checksum worked out again.
+  static void _writeOggPage(RandomAccessFile out, Uint8List header, Uint8List lacing, Uint8List body, int sequence) {
+    final view = ByteData.sublistView(header)
+      ..setUint32(18, sequence, Endian.little)
+      ..setUint32(22, 0, Endian.little);
+    var crc = 0;
+    for (final part in [header, lacing, body]) {
+      for (final byte in part) {
+        crc = (crc << 8 & 0xFFFFFFFF) ^ _oggCrcTable[(crc >> 24) ^ byte];
+      }
     }
-    blocks.add((type: 1, data: Uint8List(_padding)));
+    view.setUint32(22, crc, Endian.little);
+    out
+      ..writeFromSync(header)
+      ..writeFromSync(lacing)
+      ..writeFromSync(body);
+  }
+
+  static final _oggCrcTable = [
+    for (var i = 0; i < 256; i++)
+      () {
+        var value = i << 24;
+        for (var bit = 0; bit < 8; bit++) {
+          value = (value & 0x80000000 != 0 ? value << 1 ^ 0x04C11DB7 : value << 1) & 0xFFFFFFFF;
+        }
+        return value;
+      }(),
+  ];
+
+  // -------------------------------------------------------------------------
+  // M4A: the atoms under moov/udta/meta/ilst
+
+  static void _editMp4(File source, File target, TagChanges changes) {
+    const damaged = TagEditException('This M4A file looks damaged.');
+    final reader = source.openSync();
+    final int moovStart, moovSize;
+    final _Atom moov;
+    try {
+      final length = reader.lengthSync();
+      int? foundAt, foundSize;
+      var at = 0;
+      while (at + 8 <= length) {
+        reader.setPositionSync(at);
+        final head = reader.readSync(16);
+        final view = ByteData.sublistView(head);
+        final name = latin1.decode(head.sublist(4, 8));
+        var size = view.getUint32(0);
+        if (size == 0) size = length - at;
+        if (size == 1) {
+          if (head.length < 16) throw damaged;
+          size = view.getUint64(8);
+        }
+        if (size < 8 || at + size > length) throw damaged;
+        // Songs in fragments keep their places elsewhere.
+        if (name == 'moof') throw const TagEditException('This file is stored in a way Blimp can’t edit.');
+        if (name == 'moov') (foundAt, foundSize) = (at, size);
+        at += size;
+      }
+      if (foundAt == null || foundSize == null) throw damaged;
+      (moovStart, moovSize) = (foundAt, foundSize);
+      reader.setPositionSync(moovStart);
+      moov = _Atom.parse(reader.readSync(moovSize)) ?? (throw damaged);
+    } finally {
+      reader.closeSync();
+    }
+
+    _changeItems(moov, changes);
+
+    // Where the audio is stored is kept as places in the file, so any audio
+    // after the tags moves by however much they grew.
+    final moved = moov.size - moovSize;
+    if (moved != 0) _moveChunks(moov, moovStart + moovSize, moved);
 
     final out = target.openSync(mode: FileMode.write);
     try {
-      out.writeFromSync(ascii.encode('fLaC'));
-      for (final (i, b) in blocks.indexed) {
-        final last = i == blocks.length - 1;
-        out
-          ..writeFromSync([(last ? 0x80 : 0) | b.type, (b.data.length >> 16) & 0xFF, (b.data.length >> 8) & 0xFF, b.data.length & 0xFF])
-          ..writeFromSync(b.data);
-      }
-      _copyFrom(source, audioStart, out);
+      _copyFrom(source, 0, out, moovStart);
+      out.writeFromSync(moov.bytes());
+      _copyFrom(source, moovStart + moovSize, out);
     } finally {
       out.closeSync();
     }
+  }
+
+  static void _changeItems(_Atom moov, TagChanges changes) {
+    final udta = moov.childOrAdd('udta');
+    var meta = udta.child('meta');
+    if (meta == null) {
+      meta = _Atom.container('meta', prefix: Uint8List(4));
+      // Says the tags are iTunes's kind.
+      meta.children!.add(_Atom('hdlr', Uint8List.fromList([...Uint8List(8), ...ascii.encode('mdirappl'), ...Uint8List(9)])));
+      udta.children!.add(meta);
+    }
+    final items = meta.childOrAdd('ilst').children!;
+
+    Uint8List data(int type, List<int> value) =>
+        Uint8List.fromList([..._uint32(16 + value.length), ...ascii.encode('data'), ..._uint32(type), 0, 0, 0, 0, ...value]);
+
+    void set(List<String> names, String? value) {
+      if (value == null) return;
+      items.removeWhere((item) => names.contains(item.name));
+      if (value.trim().isNotEmpty) items.add(_Atom(names.first, data(1, utf8.encode(value.trim()))));
+    }
+
+    // Numbers are "3" or "3/12"; a total already there stays if none's given.
+    void number(String name, String? value) {
+      if (value == null) return;
+      final old = items.where((item) => item.name == name).firstOrNull?.data;
+      items.removeWhere((item) => item.name == name);
+      if (value.trim().isEmpty) return;
+      final parts = value.trim().split('/');
+      final n = int.tryParse(parts[0].trim());
+      if (n == null) throw const TagEditException('Track and disc need to be numbers.');
+      final total = (parts.length > 1 ? int.tryParse(parts[1].trim()) : null) ??
+          (old != null && old.length >= 22 ? old[20] << 8 | old[21] : 0);
+      items.add(_Atom(name, data(0, [0, 0, n >> 8, n & 0xFF, total >> 8, total & 0xFF, if (name == 'trkn') ...[0, 0]])));
+    }
+
+    set(['\xA9nam'], changes.title);
+    set(['\xA9ART'], changes.artist);
+    set(['\xA9alb'], changes.album);
+    set(['aART'], changes.albumArtist);
+    // The old numbered kind of genre goes too.
+    set(['\xA9gen', 'gnre'], changes.genre);
+    set(['\xA9day'], changes.year);
+    number('trkn', changes.track);
+    number('disk', changes.disc);
+    set(['\xA9lyr'], changes.lyrics);
+    if (changes.cover case final cover?) {
+      const jpeg = 13;
+      final covers = items.where((item) => item.name == 'covr').firstOrNull;
+      if (covers == null) {
+        items.add(_Atom('covr', data(jpeg, cover)));
+      } else {
+        covers.data = Uint8List.fromList([...covers.data!, ...data(jpeg, cover)]);
+      }
+    }
+  }
+
+  /// Adds [moved] to each place in [atom]'s tracks that's [from] or later.
+  static void _moveChunks(_Atom atom, int from, int moved) {
+    for (final child in atom.children ?? const <_Atom>[]) {
+      _moveChunks(child, from, moved);
+      if (child.name != 'stco' && child.name != 'co64') continue;
+      final width = child.name == 'co64' ? 8 : 4;
+      final view = ByteData.sublistView(child.data!);
+      final count = view.getUint32(4);
+      if (8 + count * width > child.data!.length) throw const TagEditException('This M4A file looks damaged.');
+      for (var i = 0; i < count; i++) {
+        final at = 8 + i * width;
+        final place = width == 8 ? view.getUint64(at) : view.getUint32(at);
+        if (place < from) continue;
+        if (width == 8) {
+          view.setUint64(at, place + moved);
+        } else {
+          if (place + moved > 0xFFFFFFFF) throw const TagEditException('This file is too big for Blimp to edit.');
+          view.setUint32(at, place + moved);
+        }
+      }
+    }
+  }
+}
+
+/// One atom of an MP4 file: either [data], or [children] after a [prefix].
+class _Atom {
+  _Atom(this.name, this.data) : children = null, prefix = null, tail = null;
+
+  _Atom.container(this.name, {this.prefix, this.tail}) : children = [], data = null;
+
+  final String name;
+  Uint8List? data;
+  final List<_Atom>? children;
+
+  /// Bytes before the children: most meta atoms start with a version.
+  final Uint8List? prefix;
+
+  /// Blank bytes after the last child, which some files end udta with.
+  final Uint8List? tail;
+
+  static const _containers = {'moov', 'trak', 'mdia', 'minf', 'stbl', 'udta', 'meta', 'ilst'};
+
+  /// The atom at the start of [bytes]; null if it doesn't fit together.
+  static _Atom? parse(Uint8List bytes) {
+    final first = _at(bytes, 0);
+    return first == null ? null : _build(first.name, first.body);
+  }
+
+  /// The atom at [at] in [bytes]: its name, what's in it, and its full size.
+  static ({String name, Uint8List body, int size})? _at(Uint8List bytes, int at) {
+    if (at + 8 > bytes.length) return null;
+    final view = ByteData.sublistView(bytes);
+    var size = view.getUint32(at);
+    var header = 8;
+    if (size == 0) size = bytes.length - at;
+    if (size == 1) {
+      if (at + 16 > bytes.length) return null;
+      size = view.getUint64(at + 8);
+      header = 16;
+    }
+    if (size < header || at + size > bytes.length) return null;
+    return (name: latin1.decode(bytes.sublist(at + 4, at + 8)), body: bytes.sublist(at + header, at + size), size: size);
+  }
+
+  static _Atom? _build(String name, Uint8List body) {
+    if (!_containers.contains(name)) return _Atom(name, body);
+    // A meta atom has a version first, unless it's QuickTime's kind.
+    final start = name == 'meta' && body.length >= 8 && latin1.decode(body.sublist(4, 8)) != 'hdlr' ? 4 : 0;
+    final children = <_Atom>[];
+    var at = start;
+    while (true) {
+      final next = _at(body, at);
+      if (next == null) break;
+      final child = _build(next.name, next.body);
+      if (child == null) return null;
+      children.add(child);
+      at += next.size;
+    }
+    final tail = body.sublist(at);
+    if (tail.any((byte) => byte != 0)) return null;
+    return _Atom.container(name, prefix: body.sublist(0, start), tail: tail)..children!.addAll(children);
+  }
+
+  _Atom? child(String name) => children!.where((c) => c.name == name).firstOrNull;
+
+  _Atom childOrAdd(String name) {
+    if (child(name) case final found?) return found;
+    final added = _Atom.container(name);
+    children!.add(added);
+    return added;
+  }
+
+  int get size =>
+      8 +
+      (data?.length ?? 0) +
+      (prefix?.length ?? 0) +
+      (tail?.length ?? 0) +
+      (children?.fold<int>(0, (sum, child) => sum + child.size) ?? 0);
+
+  Uint8List bytes() {
+    final out = BytesBuilder(copy: false)
+      ..add(TagEditor._uint32(size))
+      ..add(latin1.encode(name));
+    if (data case final data?) out.add(data);
+    if (prefix case final prefix?) out.add(prefix);
+    for (final child in children ?? const <_Atom>[]) {
+      out.add(child.bytes());
+    }
+    if (tail case final tail?) out.add(tail);
+    return out.takeBytes();
   }
 }

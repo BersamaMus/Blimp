@@ -68,6 +68,8 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     // without timestamps leaves the song stuck loading. Lyrics are read by the
     // app itself, so nothing beside a song is loaded with it.
     setProperty(_player, 'sub-auto', 'no');
+    // Blimp: the equalizer, if it was set before this player was made.
+    applyEqualizer();
 
     _streamSubscriptions = [
       _player.stream.duration.listen((duration) {
@@ -306,12 +308,35 @@ class MediaKitPlayer extends AudioPlayerPlatform {
 
   @override
   Future<SetSpeedResponse> setSpeed(SetSpeedRequest request) {
-    return _player.setRate(request.speed).then((_) => SetSpeedResponse());
+    // Blimp: changing speed replaces mpv's whole filter list, equalizer and all.
+    return _player.setRate(request.speed).then((_) async {
+      await applyEqualizer();
+      return SetSpeedResponse();
+    });
   }
 
   @override
   Future<SetPitchResponse> setPitch(SetPitchRequest request) =>
-      _player.setPitch(request.pitch).then((_) => SetPitchResponse());
+      // Blimp: so does changing pitch.
+      _player.setPitch(request.pitch).then((_) async {
+        await applyEqualizer();
+        return SetPitchResponse();
+      });
+
+  /// Blimp: puts [JustAudioMediaKit.equalizer] in mpv's filter list, or takes
+  /// it out, leaving any others. The labels mean adding again replaces it.
+  Future<void> applyEqualizer() async {
+    final filter = JustAudioMediaKit.equalizer;
+    if (filter == null) {
+      await runCommand(_player, ['af', 'remove', '@blimp-eq']);
+      await runCommand(_player, ['af', 'remove', '@blimp-eq-format']);
+      return;
+    }
+    // This mpv can't convert samples inside lavfi, so they're made into the
+    // kind the equalizer takes first.
+    await runCommand(_player, ['af', 'add', '@blimp-eq-format:format=format=floatp']);
+    await runCommand(_player, ['af', 'add', '@blimp-eq:lavfi=[$filter]']);
+  }
 
   @override
   Future<SetLoopModeResponse> setLoopMode(SetLoopModeRequest request) async {

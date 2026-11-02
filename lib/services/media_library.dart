@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
@@ -116,6 +117,14 @@ class Song {
 }
 
 /// How a song's audio is encoded, read from the file.
+/// Decoded mono audio from a few places in a song, at [rate] samples a second.
+class AudioPieces {
+  const AudioPieces(this.rate, this.pieces);
+
+  final int rate;
+  final List<Float32List> pieces;
+}
+
 class AudioFormat {
   const AudioFormat({this.mime, this.sampleRate, this.bitrate, this.bitsPerSample, this.channels});
 
@@ -339,6 +348,39 @@ class MediaLibrary {
         },
       );
     } on PlatformException {
+      return null;
+    }
+  }
+
+  /// [seconds] of [song] from each of [starts] (in seconds), mixed to mono
+  /// and keeping every [every]th sample, which is plenty to judge loudness
+  /// from; null if it can't be decoded. For looking at the sound itself, as
+  /// fading and the lossless check do.
+  static Future<AudioPieces?> readAudio(Song song, List<double> starts, double seconds, {int every = 1}) async {
+    final positions = Float64List.fromList(starts);
+    try {
+      final Map<Object?, Object?>? read;
+      if (isDesktop) {
+        final path = song.path;
+        if (path == null) return null;
+        read = await DesktopLibrary.readAudio(path, positions, seconds, every);
+      } else {
+        read = await _channel.invokeMapMethod<Object?, Object?>('getSamples', {
+          'id': song.id,
+          'starts': positions,
+          'seconds': seconds,
+          'every': every,
+        });
+      }
+      if (read == null) return null;
+      final samples = read['samples'] as Float32List;
+      var at = 0;
+      return AudioPieces(read['rate'] as int, [
+        for (final length in read['lengths'] as Int32List) Float32List.sublistView(samples, at, at += length),
+      ]);
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
       return null;
     }
   }
