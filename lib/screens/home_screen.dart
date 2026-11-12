@@ -129,8 +129,8 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-/// The app's mark: a yellow rounded square with a black waveform, as the
-/// launcher icon.
+/// The app's mark: a yellow rounded square with a tilted black capsule and
+/// a sound wave cut through it, as the launcher icon.
 class AppLogo extends StatelessWidget {
   const AppLogo({super.key});
 
@@ -143,13 +143,68 @@ class AppLogo extends StatelessWidget {
           width: 30,
           height: 30,
           decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(9)),
-          child: const Icon(Icons.graphic_eq_rounded, size: 20, color: Color(0xFF111111)),
+          child: const CustomPaint(painter: _MarkPainter()),
         ),
         const SizedBox(width: 10),
         const Text('Blimp'),
       ],
     );
   }
+}
+
+/// Draws the capsule mark. The shape is the same one as the app icons
+/// (docs/img/icon.svg), traced into a 100 by 100 box.
+class _MarkPainter extends CustomPainter {
+  const _MarkPainter();
+
+  static final _mark = Path()
+    ..fillType = PathFillType.evenOdd
+    // The capsule.
+    ..moveTo(19.69, 31.79)
+    ..lineTo(68.21, 19.69)
+    ..arcToPoint(const Offset(80.31, 68.21), radius: const Radius.circular(25))
+    ..lineTo(31.79, 80.31)
+    ..arcToPoint(const Offset(19.69, 31.79), radius: const Radius.circular(25))
+    ..close()
+    // The sound wave, cut out of it.
+    ..moveTo(15.97, 61.82)
+    ..lineTo(29.66, 58.4)
+    ..arcToPoint(const Offset(31.93, 56.36), radius: const Radius.circular(3.24), clockwise: false)
+    ..lineTo(34.94, 47.93)
+    ..lineTo(48.29, 65.11)
+    ..arcToPoint(const Offset(54.06, 63.51), radius: const Radius.circular(3.24), clockwise: false)
+    ..lineTo(56.8, 40.6)
+    ..lineTo(68.76, 57.45)
+    ..arcToPoint(const Offset(74.44, 56.67), radius: const Radius.circular(3.24), clockwise: false)
+    ..lineTo(78.15, 46.32)
+    ..lineTo(85.6, 44.46)
+    ..arcToPoint(const Offset(84.03, 38.18), radius: const Radius.circular(3.24), clockwise: false)
+    ..lineTo(74.9, 40.46)
+    ..arcToPoint(const Offset(72.64, 42.51), radius: const Radius.circular(3.24), clockwise: false)
+    ..lineTo(70.44, 48.64)
+    ..lineTo(57.21, 30.01)
+    ..arcToPoint(const Offset(51.36, 31.5), radius: const Radius.circular(3.24), clockwise: false)
+    ..lineTo(48.57, 54.92)
+    ..lineTo(36.44, 39.3)
+    ..arcToPoint(const Offset(30.84, 40.2), radius: const Radius.circular(3.24), clockwise: false)
+    ..lineTo(26.42, 52.55)
+    ..lineTo(14.4, 55.54)
+    ..arcToPoint(const Offset(15.97, 61.82), radius: const Radius.circular(3.24), clockwise: false)
+    ..close();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // The mark fills about three quarters of the tile, like on the launcher.
+    final scale = size.shortestSide / 100 * 0.78;
+    canvas
+      ..translate(size.width / 2, size.height / 2)
+      ..scale(scale)
+      ..translate(-50, -50)
+      ..drawPath(_mark, Paint()..color = const Color(0xFF111111));
+  }
+
+  @override
+  bool shouldRepaint(_MarkPainter oldDelegate) => false;
 }
 
 /// Recently played songs in a single sideways row.

@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The launcher icon's mark: five equalizer bars, inside the 66dp safe zone
-     that every launcher's mask keeps. Also the monochrome themed icon. -->
+<!-- The launcher icon's mark: a tilted capsule with a sound wave cut through
+     it, inside the 66dp safe zone that every launcher's mask keeps. Also the
+     monochrome themed icon. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:strokeColor="#FF111111"
-        android:strokeWidth="5"
-        android:strokeLineCap="round"
-        android:pathData="M36,47.5L36,60.5M45,40.5L45,67.5M54,36.5L54,71.5M63,43.5L63,64.5M72,49.5L72,58.5" />
+        android:fillColor="#FF111111"
+        android:fillType="evenOdd"
+        android:pathData="M40.47,45.87L62.13,40.47A11.16,11.16 0 0 1 67.53,62.13L45.87,67.53A11.16,11.16 0 0 1 40.47,45.87ZM38.81,59.28L44.92,57.75A1.44,1.44 0 0 0 45.93,56.84L47.28,53.07L53.24,60.75A1.44,1.44 0 0 0 55.81,60.03L57.03,49.8L62.37,57.33A1.44,1.44 0 0 0 64.91,56.98L66.56,52.36L69.89,51.53A1.44,1.44 0 0 0 69.19,48.72L65.12,49.74A1.44,1.44 0 0 0 64.11,50.65L63.13,53.39L57.22,45.08A1.44,1.44 0 0 0 54.61,45.74L53.36,56.2L47.95,49.22A1.44,1.44 0 0 0 45.45,49.62L43.47,55.14L38.11,56.47A1.44,1.44 0 0 0 38.81,59.28Z" />
 </vector>

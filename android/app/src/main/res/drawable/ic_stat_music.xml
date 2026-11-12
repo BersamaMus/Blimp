@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Status bar icon for the playback notification: the app's waveform mark.
-     Android draws it as a white silhouette, so it's a single solid shape. -->
+<!-- Status bar icon for the playback notification: the app's capsule mark.
+     Android draws it as a white silhouette, so it's a single solid shape
+     with the wave cut out. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -8,5 +9,6 @@
     android:viewportHeight="24">
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M3,10h2v4h-2z M7,7h2v10h-2z M11,4h2v16h-2z M15,7h2v10h-2z M19,10h2v4h-2z" />
+        android:fillType="evenOdd"
+        android:pathData="M5.33,7.99L16.01,5.33A5.5,5.5 0 0 1 18.67,16.01L7.99,18.67A5.5,5.5 0 0 1 5.33,7.99ZM4.51,14.6L7.53,13.85A0.71,0.71 0 0 0 8.02,13.4L8.69,11.54L11.62,15.32A0.71,0.71 0 0 0 12.89,14.97L13.49,9.93L16.13,13.64A0.71,0.71 0 0 0 17.38,13.47L18.19,11.19L19.83,10.78A0.71,0.71 0 0 0 19.49,9.4L17.48,9.9A0.71,0.71 0 0 0 16.98,10.35L16.5,11.7L13.59,7.6A0.71,0.71 0 0 0 12.3,7.93L11.69,13.08L9.02,9.65A0.71,0.71 0 0 0 7.78,9.84L6.81,12.56L4.17,13.22A0.71,0.71 0 0 0 4.51,14.6Z" />
 </vector>
