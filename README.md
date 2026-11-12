@@ -68,6 +68,9 @@ manager to install unknown apps if it asks.
 - **Streaks and badges:** days in a row with music, and badges to earn.
 - **Time machine:** what you were playing this week a year (or a few months)
   ago, on Home.
+- **Autoplay in your language:** when your queue ends, similar songs keep
+  playing in the same language as what you were listening to, worked out
+  from the song's title, artist and album.
 - **Decade radio:** shuffle your songs from the '80s, '90s or any decade.
 - **Six degrees:** see how two artists link through songs they share.
 - **Song DNA:** a card of everything about one song: plays, skips, when you

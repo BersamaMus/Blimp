@@ -100,6 +100,12 @@ class PlaybackSettingsScreen extends StatelessWidget {
             onChanged: music.setAutoplay,
           ),
           _SwitchTile(
+            title: 'Keep to the same language',
+            subtitle: 'Autoplay and radio pick songs in the language of what you were playing first',
+            value: music.sameLanguage,
+            onChanged: music.setSameLanguage,
+          ),
+          _SwitchTile(
             title: 'Waveform seek bar',
             subtitle: "Show the song's waveform in the player instead of a plain slider",
             value: music.waveformSeekBar,

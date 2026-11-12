@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 
 import 'package:flutter/services.dart';
@@ -34,6 +35,7 @@ import 'search_text.dart';
 import 'smart_playlists.dart';
 import 'song_dna.dart';
 import 'song_edges.dart';
+import 'song_language.dart';
 import 'tag_editor.dart';
 import 'time_machine.dart';
 import 'visualizer.dart';
@@ -216,6 +218,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   static const _visualizerStyleKey = 'visualizer_style';
   static const _visualizerEnabledKey = 'visualizer_enabled';
   static const _autoplayKey = 'autoplay';
+  static const _sameLanguageKey = 'autoplay_same_language';
   static const _queueKey = 'queue_song_ids';
   static const _queueIndexKey = 'queue_index';
   static const _unshuffledKey = 'queue_unshuffled_ids';
@@ -512,6 +515,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   void _index(List<Song> all) {
     songs = all;
+    _languages = null;
+    if (sameLanguage) _workOutLanguages();
     _songsById = {for (final s in all) s.id: s};
 
     _credits = ArtistCredits(all);
@@ -666,6 +671,10 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   /// Whether similar songs keep playing once the queue runs out.
   bool autoplay = true;
 
+  /// Whether autoplay and radio keep to the language of the songs playing
+  /// (see [SongLanguages]) before reaching for songs in others.
+  bool sameLanguage = true;
+
   /// Whether the player's seek bar shows the song's waveform instead of a
   /// plain slider.
   bool waveformSeekBar = false;
@@ -794,7 +803,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     visualizerStyle = VisualizerStyle.values.asNameMap()[prefs.getString(_visualizerStyleKey)] ?? VisualizerStyle.bars;
     visualizerEnabled = prefs.getBool(_visualizerEnabledKey) ?? true;
     discordStatus.value = isDesktop && (prefs.getBool(_discordStatusKey) ?? false);
-    autoplay =prefs.getBool(_autoplayKey) ?? true;
+    autoplay = prefs.getBool(_autoplayKey) ?? true;
+    sameLanguage = prefs.getBool(_sameLanguageKey) ?? true;
     waveformSeekBar = prefs.getBool(_waveformSeekBarKey) ?? false;
     browseFolders = prefs.getBool(_browseFoldersKey) ?? false;
     hiddenFolders = prefs.getStringList(_hiddenFoldersKey) ?? [];
@@ -860,6 +870,14 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     final length = player.sequence.length;
     final from = max(autoplayStart, (player.currentIndex ?? -1) + 1);
     if (from < length) await player.removeAudioSourceRange(from, length);
+  }
+
+  /// Applies to the autoplay songs queued from now on.
+  void setSameLanguage(bool enabled) {
+    sameLanguage = enabled;
+    if (enabled) _workOutLanguages();
+    _prefs?.setBool(_sameLanguageKey, enabled);
+    _notify({MusicAspect.settings});
   }
 
   void setVisualizerStyle(VisualizerStyle style) {
@@ -1071,6 +1089,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _visualizerStyleKey,
     _visualizerEnabledKey,
     _autoplayKey,
+    _sameLanguageKey,
     _hiddenFoldersKey,
     _minSongSecondsKey,
     _speedKey,
@@ -2599,10 +2618,34 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     return _songsLike(seeds, count, exclude: queued);
   }
 
+  /// Each song's language. It's worked out in the background after the
+  /// library changes (see [_workOutLanguages]); only if it's needed before
+  /// that finishes is it worked out here and now.
+  SongLanguages get languages => _languages ??= SongLanguages(songs);
+  SongLanguages? _languages;
+
+  /// Works out [languages] away from the screen's thread, since reading
+  /// every title of a big library would hold up the player.
+  void _workOutLanguages() {
+    if (_languages != null) return;
+    final library = songs;
+    unawaited(_languagesOf(library).then((found) {
+      // Kept only if the library hasn't changed since.
+      if (identical(songs, library)) _languages ??= found;
+    }, onError: (_) {}));
+  }
+
+  // Static, so the background work gets the songs and not the controller.
+  static Future<SongLanguages> _languagesOf(List<Song> library) => Isolate.run(() => SongLanguages(library));
+
   /// [count] songs like [seeds], none of them (or a copy of one) in [exclude]:
   /// about a third by the same artists or off the same albums, the rest from
   /// the same genres. Songs without enough tags to go by (many have no genre)
   /// are filled out with songs from around the same years, then at random.
+  /// With [sameLanguage] on, all of them come first from songs in the
+  /// seeds' languages, then from songs whose language can't be told, then
+  /// any. When some seeds' language can't be told either, songs like them
+  /// count as the seeds' languages too.
   List<Song> _songsLike(List<Song> seeds, int count, {required Set<Song> exclude}) {
     final artists = {for (final song in seeds) ?song.artist};
     final albums = {for (final song in seeds) if (song.album case final album? when album.isNotEmpty) album};
@@ -2624,10 +2667,20 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
         };
     List<Song> shuffled(bool Function(Song) test) => fresh.where(test).toList()..shuffle();
 
-    final chosen = <Song>{...shuffled(close).take(count ~/ 3)};
-    for (final tier in [sameGenre, sameEra, (Song _) => true]) {
-      if (chosen.length >= count) break;
-      chosen.addAll(shuffled((s) => !chosen.contains(s) && tier(s)).take(count - chosen.length));
+    // With no seed's language known, every song counts as the same language.
+    final spoken = sameLanguage ? {for (final song in seeds) languages.of(song)} : const <String?>{};
+    final known = spoken.any((language) => language != null);
+    bool sameTongue(Song s) => !known || spoken.contains(languages.of(s));
+    bool unknownTongue(Song s) => languages.of(s) == null;
+    bool any(Song _) => true;
+
+    // The same artist's songs in another language wait with the rest.
+    final chosen = <Song>{...shuffled((s) => close(s) && sameTongue(s)).take(count ~/ 3)};
+    for (final language in [sameTongue, unknownTongue, any]) {
+      for (final tier in [sameGenre, sameEra, any]) {
+        if (chosen.length >= count) break;
+        chosen.addAll(shuffled((s) => !chosen.contains(s) && language(s) && tier(s)).take(count - chosen.length));
+      }
     }
     final names = <String>{};
     return [for (final song in chosen) if (names.add(nameOf(song))) song]..shuffle();
