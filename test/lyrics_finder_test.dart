@@ -290,5 +290,21 @@ void main() {
       expect(back.settled(2, now), isTrue);
       expect(back.settled(3, now.add(const Duration(days: 3650))), isTrue);
     });
+
+    // As when Blimp starts again: these were once lost on every restart.
+    test('are still there when opened again', () async {
+      final dir = await Directory.systemTemp.createTemp('blimp_found');
+      addTearDown(() => dir.delete(recursive: true));
+      final file = File('${dir.path}/found.json');
+      final found = FoundLyrics(file)
+        ..put(1, '[00:01.00]line')
+        ..missed(2, now)
+        ..markInstrumental(3);
+      await found.save();
+      final back = await FoundLyrics.openFile(file);
+      expect(back.textOf(1), '[00:01.00]line');
+      expect(back.settled(2, now), isTrue);
+      expect(back.isInstrumental(3), isTrue);
+    });
   });
 }

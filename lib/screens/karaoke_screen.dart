@@ -192,7 +192,7 @@ class _SingAlongState extends State<_SingAlong> with SingleTickerProviderStateMi
         // after a line was sung with the next still a way off.
         final resting = current == null ||
             current.text.isEmpty ||
-            (untilNext != null && position - current.time! > _fillTime(current, lyrics.endOf(index, songEnd: songEnd)) + const Duration(seconds: 3));
+            (untilNext != null && position - current.time! > _singTime(current, lyrics.endOf(index, songEnd: songEnd)) + const Duration(seconds: 3));
 
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 350),
@@ -218,7 +218,13 @@ class _SingAlongState extends State<_SingAlong> with SingleTickerProviderStateMi
                 ] else
                   _SungLine(
                     text: current.text,
-                    filled: _filled(current, position, lyrics.endOf(index, songEnd: songEnd)),
+                    // A line timed only as a whole is lit all at once, since
+                    // guessing when each word comes puts the colour ahead of
+                    // or behind the singer.
+                    filled: switch (current.words) {
+                      final words? => _filled(words, position, lyrics.endOf(index, songEnd: songEnd)),
+                      null => current.text.characters.length.toDouble(),
+                    },
                     style: sungStyle,
                   ),
                 const SizedBox(height: 28),
@@ -235,25 +241,21 @@ class _SingAlongState extends State<_SingAlong> with SingleTickerProviderStateMi
     );
   }
 
-  /// How long a line without word timings takes to fill: until the next
-  /// line, but no slower than singing at an easy pace, so a line followed
-  /// by a long instrumental doesn't crawl.
-  static Duration _fillTime(LyricLine line, Duration? end) {
+  /// About how long a line takes to sing: until the next line, but no
+  /// slower than an easy pace, so a line followed by a long instrumental
+  /// gives way to the resting note instead of staying up.
+  static Duration _singTime(LyricLine line, Duration? end) {
     final pace = Duration(milliseconds: 600 + line.text.characters.length * 110);
     final until = end == null ? pace : end - line.time!;
     return until < pace ? until : pace;
   }
 
-  /// How many of [line]'s characters have been sung at [position],
-  /// fractional partway through one.
-  static double _filled(LyricLine line, Duration position, Duration? end) {
+  /// How many characters of a line timed word by word have been sung at
+  /// [position], fractional partway through one; the line ends at [end].
+  static double _filled(List<LyricWord> words, Duration position, Duration? end) {
     double share(Duration from, Duration to) =>
         to <= from ? 1 : ((position - from).inMicroseconds / (to - from).inMicroseconds).clamp(0.0, 1.0);
 
-    final words = line.words;
-    if (words == null) {
-      return line.text.characters.length * share(line.time!, line.time! + _fillTime(line, end));
-    }
     var filled = 0.0;
     for (final (i, word) in words.indexed) {
       if (position < word.time) break;

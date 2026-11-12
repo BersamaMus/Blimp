@@ -39,7 +39,7 @@ manager to install unknown apps if it asks.
   coloured by the song's artwork.
 - **Synced lyrics:** read from your files' tags or from `.lrc` files beside them.
   Tap a line to jump to it, or open Karaoke mode to sing along, word by word
-  when the lyrics time each word.
+  when the lyrics are timed that finely.
 - **Search your lyrics:** search finds songs by the words in them, and plays
   from the line they're sung on.
 - **Lyrics search:** when you ask, looks up a song, or your whole library, on

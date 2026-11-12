@@ -291,15 +291,25 @@ class FoundLyrics {
 
   static Future<FoundLyrics> open() async {
     final dir = await getApplicationSupportDirectory();
-    final found = FoundLyrics(File('${dir.path}/found_lyrics.json'));
+    return openFile(File('${dir.path}/found_lyrics.json'));
+  }
+
+  /// Those kept in [file], or none if it can't be read.
+  static Future<FoundLyrics> openFile(File file) async {
+    final found = FoundLyrics(file);
     try {
-      final text = await found._file!.readAsString();
-      // Away from the screen's thread: the file can be a few megabytes.
-      final read = await Isolate.run(() => FoundLyrics(null)..decode(text));
+      final text = await file.readAsString();
+      // Away from the screen's thread: the file can be a few megabytes. Only
+      // the plain maps come back, as the object itself holds a Future, which
+      // can't pass between threads.
+      final (texts, missed, instrumental) = await Isolate.run(() {
+        final read = FoundLyrics(null)..decode(text);
+        return (read._texts, read._missed, read._instrumental);
+      });
       found
-        .._texts = read._texts
-        .._missed = read._missed
-        .._instrumental = read._instrumental;
+        .._texts = texts
+        .._missed = missed
+        .._instrumental = instrumental;
     } on Object {
       // Nothing found yet, or an unreadable file: start afresh.
     }
