@@ -77,9 +77,12 @@ class PillButton extends StatelessWidget {
       foregroundColor: filled ? AppColors.onAccent : AppColors.accent,
       textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
     );
+    // On a narrow screen or with large text the label shortens with "…"
+    // instead of spilling past the edge, when the pill sits in a Flexible.
+    final text = Text(label, maxLines: 1, overflow: TextOverflow.ellipsis);
     return icon == null
-        ? FilledButton(style: style, onPressed: onPressed, child: Text(label))
-        : FilledButton.icon(style: style, onPressed: onPressed, icon: Icon(icon, size: 20), label: Text(label));
+        ? FilledButton(style: style, onPressed: onPressed, child: text)
+        : FilledButton.icon(style: style, onPressed: onPressed, icon: Icon(icon, size: 20), label: text);
   }
 }
 

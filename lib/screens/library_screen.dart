@@ -551,73 +551,127 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool get _genrePicked => _genre != null && _byGenre;
 
   Widget _sortBar(BuildContext context, MusicController music) {
+    final playlists = !_foldersMode && _filter == _Filter.playlists;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
-      child: Row(
-        children: [
-          // A genre's songs can be played straight away; the sort still
-          // applies, and its menu comes back once the genre is cleared.
-          if (_genrePicked) ...[
-            PillButton(
-              label: 'Play all',
-              icon: Icons.play_arrow_rounded,
-              filled: true,
-              onPressed: () => music.playSongs(_sortedSongs(music)),
-            ),
-            const SizedBox(width: 8),
-            PillButton(
-              label: 'Shuffle',
-              icon: Icons.shuffle,
-              onPressed: () => music.playSongs(_sortedSongs(music), shuffle: true),
-            ),
-          ] else
-            PopupMenuButton<_Sort>(
-              initialValue: _tableSort == null ? _sort : null,
-              position: PopupMenuPosition.under,
-              onSelected: (sort) => setState(() {
-                _sort = sort;
-                _column = null;
-              }),
-              itemBuilder: (_) => [for (final s in _Sort.values) PopupMenuItem(value: s, child: Text(s.label))],
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
-                decoration: const ShapeDecoration(color: AppColors.surface, shape: StadiumBorder()),
-                child: Row(
-                  children: [
-                    Icon(Icons.sort_rounded, size: 18, color: AppColors.accent),
-                    const SizedBox(width: 6),
-                    Text(_tableSort?.label ?? _sort.label, style: Theme.of(context).textTheme.labelLarge),
-                    const Icon(Icons.expand_more_rounded, size: 20, color: AppColors.textSecondary),
+      // A phone is too narrow for every playlist button side by side, so
+      // there they fold into one "add" menu. Whatever is on the left gives
+      // way (its text shortens) rather than pushing the row off the screen.
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final roomy = constraints.maxWidth >= 560;
+          return Row(
+            children: [
+              // A genre's songs can be played straight away; the sort still
+              // applies, and its menu comes back once the genre is cleared.
+              if (_genrePicked) ...[
+                Flexible(
+                  child: PillButton(
+                    label: 'Play all',
+                    icon: Icons.play_arrow_rounded,
+                    filled: true,
+                    onPressed: () => music.playSongs(_sortedSongs(music)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: PillButton(
+                    label: 'Shuffle',
+                    icon: Icons.shuffle,
+                    onPressed: () => music.playSongs(_sortedSongs(music), shuffle: true),
+                  ),
+                ),
+              ] else
+                Flexible(
+                  child: PopupMenuButton<_Sort>(
+                    initialValue: _tableSort == null ? _sort : null,
+                    position: PopupMenuPosition.under,
+                    onSelected: (sort) => setState(() {
+                      _sort = sort;
+                      _column = null;
+                    }),
+                    itemBuilder: (_) => [for (final s in _Sort.values) PopupMenuItem(value: s, child: Text(s.label))],
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+                      decoration: const ShapeDecoration(color: AppColors.surface, shape: StadiumBorder()),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.sort_rounded, size: 18, color: AppColors.accent),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              _tableSort?.label ?? _sort.label,
+                              style: Theme.of(context).textTheme.labelLarge,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const Icon(Icons.expand_more_rounded, size: 20, color: AppColors.textSecondary),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              const Spacer(),
+              if (playlists && roomy) ...[
+                IconButton(
+                  tooltip: 'New smart playlist',
+                  icon: const Icon(Icons.auto_awesome_outlined),
+                  onPressed: _newSmartPlaylist,
+                ),
+                IconButton(
+                  tooltip: 'Import a playlist (M3U)',
+                  icon: const Icon(Icons.file_open_outlined),
+                  onPressed: _importPlaylist,
+                ),
+                TextButton.icon(
+                  onPressed: _newPlaylist,
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('New playlist'),
+                ),
+              ] else if (playlists)
+                PopupMenuButton<VoidCallback>(
+                  tooltip: 'New playlist',
+                  icon: const Icon(Icons.add_rounded),
+                  position: PopupMenuPosition.under,
+                  onSelected: (action) => action(),
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: _newPlaylist,
+                      child: const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.add_rounded),
+                        title: Text('New playlist'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _newSmartPlaylist,
+                      child: const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.auto_awesome_outlined),
+                        title: Text('New smart playlist'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _importPlaylist,
+                      child: const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.file_open_outlined),
+                        title: Text('Import a playlist (M3U)'),
+                      ),
+                    ),
                   ],
                 ),
-              ),
-            ),
-          const Spacer(),
-          if (!_foldersMode && _filter == _Filter.playlists)
-            IconButton(
-              tooltip: 'New smart playlist',
-              icon: const Icon(Icons.auto_awesome_outlined),
-              onPressed: _newSmartPlaylist,
-            ),
-          if (!_foldersMode && _filter == _Filter.playlists)
-            IconButton(
-              tooltip: 'Import a playlist (M3U)',
-              icon: const Icon(Icons.file_open_outlined),
-              onPressed: _importPlaylist,
-            ),
-          if (!_foldersMode && _filter == _Filter.playlists)
-            TextButton.icon(
-              onPressed: _newPlaylist,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('New playlist'),
-            ),
-          if (_foldersMode || _filter != _Filter.songs)
-            IconButton(
-              tooltip: _grid ? 'List view' : 'Grid view',
-              icon: Icon(_grid ? Icons.view_agenda_outlined : Icons.grid_view_rounded),
-              onPressed: () => setState(() => _grid = !_grid),
-            ),
-        ],
+              if (_foldersMode || _filter != _Filter.songs)
+                IconButton(
+                  tooltip: _grid ? 'List view' : 'Grid view',
+                  icon: Icon(_grid ? Icons.view_agenda_outlined : Icons.grid_view_rounded),
+                  onPressed: () => setState(() => _grid = !_grid),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
