@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/desktop_window.dart';
 import '../services/home_widgets.dart';
 import '../services/music_controller.dart';
 import '../services/open_files.dart';
+import '../services/update_check.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/shelf.dart';
@@ -95,6 +97,23 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     HomeWidgets.onRequest(_onWidgetRequest);
     _currentTab.addListener(_onTab);
+    _checkForUpdate();
+  }
+
+  /// Says so when a newer Blimp is out, with a link to download it.
+  Future<void> _checkForUpdate() async {
+    final version = await UpdateCheck.newerVersion();
+    if (version == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Blimp $version is out'),
+        duration: const Duration(seconds: 10),
+        action: SnackBarAction(
+          label: 'Download',
+          onPressed: () => launchUrl(releasesPage, mode: LaunchMode.externalApplication),
+        ),
+      ),
+    );
   }
 
   /// A home screen widget opened the app: does what it asked once the last

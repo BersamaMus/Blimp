@@ -479,6 +479,14 @@ class PrivacySettingsScreen extends StatelessWidget {
               done: 'Search history cleared',
             ),
           ),
+          const Divider(),
+          _SwitchTile(
+            title: 'Check for updates',
+            subtitle:
+                'Each time Blimp opens, it asks GitHub whether a newer version is out. Nothing about you or your music is sent. Copies from the Play Store or Microsoft Store are updated by the store instead',
+            value: music.checkForUpdates,
+            onChanged: music.setCheckForUpdates,
+          ),
           if (isDesktop) ...[
             const Divider(),
             _SwitchTile(

@@ -79,7 +79,10 @@ manager to install unknown apps if it asks.
   one file, and restore them on another device.
 - **Private:** Blimp collects nothing, and only goes online if you search for
   lyrics or, on Windows, for missing tags, or for Discord covers if you turn on
-  the Discord status.
+  the Discord status. Copies from GitHub also ask GitHub whether a newer version
+  is out when they open, sending nothing about you; turn it off in Settings.
+- **Update notices:** says when a new version is out, with a link to download
+  it. Play Store and Microsoft Store copies are updated by the store instead.
 
 ### On Windows
 

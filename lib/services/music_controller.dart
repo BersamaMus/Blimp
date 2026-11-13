@@ -38,6 +38,7 @@ import 'song_edges.dart';
 import 'song_language.dart';
 import 'tag_editor.dart';
 import 'time_machine.dart';
+import 'update_check.dart';
 import 'visualizer.dart';
 
 enum LibraryStatus { loading, permissionDenied, ready }
@@ -803,6 +804,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     visualizerStyle = VisualizerStyle.values.asNameMap()[prefs.getString(_visualizerStyleKey)] ?? VisualizerStyle.bars;
     visualizerEnabled = prefs.getBool(_visualizerEnabledKey) ?? true;
     discordStatus.value = isDesktop && (prefs.getBool(_discordStatusKey) ?? false);
+    checkForUpdates = prefs.getBool(checkForUpdatesKey) ?? true;
     autoplay = prefs.getBool(_autoplayKey) ?? true;
     sameLanguage = prefs.getBool(_sameLanguageKey) ?? true;
     waveformSeekBar = prefs.getBool(_waveformSeekBarKey) ?? false;
@@ -1738,6 +1740,16 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   void setDiscordStatus(bool on) {
     _prefs?.setBool(_discordStatusKey, on);
     discordStatus.value = on;
+    _notify({MusicAspect.settings});
+  }
+
+  /// Whether Blimp asks GitHub for a newer version each time it opens (see
+  /// [UpdateCheck]). On unless the user turns it off.
+  bool checkForUpdates = true;
+
+  void setCheckForUpdates(bool on) {
+    _prefs?.setBool(checkForUpdatesKey, on);
+    checkForUpdates = on;
     _notify({MusicAspect.settings});
   }
 
