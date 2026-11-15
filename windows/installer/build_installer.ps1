@@ -19,6 +19,9 @@ if (-not $iscc) { throw 'Inno Setup not found. Install it with: winget install J
 
 Push-Location $root
 try {
+  # A fresh build: Flutter never removes what it no longer builds, and
+  # everything here goes into the installer.
+  Remove-Item "$root\build\windows\x64\runner\Release" -Recurse -Force -ErrorAction SilentlyContinue
   Write-Host "Building Blimp $version for Windows..."
   flutter build windows --release
   if ($LASTEXITCODE -ne 0) { throw 'flutter build windows failed' }

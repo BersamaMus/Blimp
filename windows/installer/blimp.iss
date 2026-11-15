@@ -6,13 +6,15 @@
 #endif
 
 [Setup]
-; Identifies Blimp to Windows across versions, so updates replace it. Never
-; change it.
+; Identifies Blimp to Windows across versions, so updates replace it, and
+; tells Jeti (the launcher) which version is installed. Never change it.
 AppId={{F6B5CA3D-C1D6-43EE-8494-EEB7F8CC522B}
 AppName=Blimp
 AppVersion={#AppVersion}
 AppVerName=Blimp {#AppVersion}
-AppPublisher=Blimp
+AppPublisher=BersamaMus
+AppPublisherURL=https://bersamamus.com/blimp
+VersionInfoVersion={#AppVersion}
 DefaultDirName={autopf}\Blimp
 DefaultGroupName=Blimp
 DisableProgramGroupPage=yes
@@ -22,10 +24,12 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+MinVersion=10.0
 OutputDir=..\..\build\installer
 OutputBaseFilename=Blimp-Setup-{#AppVersion}
 SetupIconFile=..\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\blimp.exe
+UninstallDisplayName=Blimp
 WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes

@@ -25,9 +25,10 @@ Blimp plays the music already on your device: no accounts, no ads, and it works 
 ## Download
 
 - **Windows 10 and 11:** get `Blimp-Setup.exe` from the
-  [latest release](../../releases/latest).
-- **Android:** get `Blimp.apk` from the [latest release](../../releases/latest).
-  Coming to Google Play too.
+  [latest release](../../releases/latest), or install it with
+  [Jeti](https://github.com/BersamaMus/Jeti), which keeps it up to date.
+- **Android 7 and up:** get `Blimp.apk` from the same release, or install it
+  with Jeti for Android. Coming to Google Play too.
 
 Windows may warn that the installer is from an unknown publisher. Click
 **More info**, then **Run anyway**. On Android, allow your browser or file
@@ -81,6 +82,7 @@ manager to install unknown apps if it asks.
   lyrics or, on Windows, for missing tags, or for Discord covers if you turn on
   the Discord status. Copies from GitHub also ask GitHub whether a newer version
   is out when they open, sending nothing about you; turn it off in Settings.
+  See the [privacy policy](https://bersamamus.com/blimp/privacy).
 - **Update notices:** says when a new version is out, with a link to download
   it. Play Store and Microsoft Store copies are updated by the store instead.
 
@@ -106,3 +108,8 @@ manager to install unknown apps if it asks.
 
 - Android Auto, home screen widgets, lock screen controls, and a sleep timer.
 - Open songs with Blimp from a file manager or another app.
+
+## Licence
+
+Blimp is free software, released under the [GNU General Public License v3.0](LICENSE): you may use, change and share it, as long as what you share stays under the same licence.
+

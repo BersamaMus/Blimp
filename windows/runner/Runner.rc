@@ -89,11 +89,14 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
+            // Never change CompanyName or ProductName: Blimp's settings and
+            // saved data live in AppData\Roaming\<CompanyName>\<ProductName>,
+            // so a new name would start everyone off empty.
             VALUE "CompanyName", "Blimp" "\0"
             VALUE "FileDescription", "Blimp" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "blimp" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Blimp. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 BersamaMus" "\0"
             VALUE "OriginalFilename", "blimp.exe" "\0"
             VALUE "ProductName", "Blimp" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
