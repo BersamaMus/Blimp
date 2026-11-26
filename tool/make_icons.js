@@ -274,6 +274,7 @@ console.log("FLUTTER_PATH " + pathData(ffS, 50 - C * ffS, 50 - C * ffS));
 
 w("docs/img/icon.png", fullSquare(512));
 w("store_listing/icon_512.png", fullSquare(512));
+w("store_listing/windows/tile_300.png", fullSquare(300)); // Microsoft Store 1:1 app tile icon
 w("store_listing/launch_video/assets/icon.png", fullSquare(512));
 for (const [dir, s] of [["mdpi",48],["hdpi",72],["xhdpi",96],["xxhdpi",144],["xxxhdpi",192]])
   w(`android/app/src/main/res/mipmap-${dir}/ic_launcher.png`, legacyRound(s));
