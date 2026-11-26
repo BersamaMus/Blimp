@@ -114,24 +114,49 @@ const _channel = EventChannel('blimp/visualizer');
 /// Errors if Android won't allow it (for example, without the microphone
 /// permission it requires). On Windows the session is ignored: it's Blimp's
 /// own audio (windows/runner/visualizer.cpp), and [volume] gives the
-/// in-app volume, as a step 0..100, in place of Android's.
+/// in-app volume, as a step 0..100. Together with Windows' own volume, it
+/// stands in for Android's volume step.
 ///
 /// Heights follow how loud the music is compared with its loud parts, so a
 /// buildup sits visibly below the drop that follows.
-Stream<AudioFrame> audioFrames(int audioSessionId, {int Function()? volume}) =>
-    _channel.receiveBroadcastStream(audioSessionId).map((event) {
-      final step = event['volume'] as int? ?? volume?.call() ?? 1;
-      final gain = _loudness.gain((event['rms'] as num).toDouble(), step);
-      final bands = event['bands'] as Float64List;
-      final fineBands = event['fineBands'] as Float64List;
-      final wave = event['wave'] as Float64List;
-      for (final values in [bands, fineBands, wave]) {
-        for (var i = 0; i < values.length; i++) {
-          values[i] *= gain;
-        }
+Stream<AudioFrame> audioFrames(int audioSessionId, {int Function()? volume}) {
+  // Windows' volume as last read, kept through a frame that couldn't read it
+  // (while the output changes, say), so the step doesn't jump to full and back.
+  double? systemVolume;
+  return _channel.receiveBroadcastStream(audioSessionId).map((event) {
+    final androidStep = event['volume'] as int?;
+    final inApp = androidStep ?? volume?.call() ?? 100;
+    final readVolume = (event['systemVolume'] as num?)?.toDouble();
+    systemVolume = readVolume ?? systemVolume;
+    final step = androidStep ?? _desktopStep(inApp, systemVolume);
+    // The loudness is measured after the in-app volume but before Windows'
+    // own, so only the in-app volume is a change the reading follows. Still
+    // worked out at volume 0, so the reference follows the change.
+    var gain = _loudness.gain((event['rms'] as num).toDouble(), inApp);
+    // Nothing is heard, so nothing moves. Windows captures the sound before
+    // its own volume is applied, so this can't be left to the loudness.
+    if (step == 0) gain = 0;
+    final bands = event['bands'] as Float64List;
+    final fineBands = event['fineBands'] as Float64List;
+    final wave = event['wave'] as Float64List;
+    for (final values in [bands, fineBands, wave]) {
+      for (var i = 0; i < values.length; i++) {
+        values[i] *= gain;
       }
-      return AudioFrame(bands, fineBands, wave, step, wholePc: event['wholePc'] == true);
-    });
+    }
+    return AudioFrame(bands, fineBands, wave, step, wholePc: event['wholePc'] == true);
+  });
+}
+
+/// Windows' volume step, 0..100: the in-app volume ([inApp]) scaled by
+/// Windows' own ([system], 0..1 and 0 when muted, Blimp's slider in the
+/// Volume Mixer included; null if it hasn't been read yet). It's 0 only when
+/// either is off, so a quiet setting isn't taken for silence.
+int _desktopStep(int inApp, double? system) {
+  final pc = system ?? 1;
+  if (inApp == 0 || pc == 0) return 0;
+  return max(1, (inApp * pc).round());
+}
 
 /// Kept while the app runs, so reopening the tab mid-buildup doesn't take
 /// the buildup for the loudest part.

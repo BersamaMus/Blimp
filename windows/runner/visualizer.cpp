@@ -2,6 +2,8 @@
 
 #include <audioclient.h>
 #include <audioclientactivationparams.h>
+#include <audiopolicy.h>
+#include <endpointvolume.h>
 #include <flutter/event_stream_handler_functions.h>
 #include <flutter/standard_method_codec.h>
 #include <mmdeviceapi.h>
@@ -9,6 +11,7 @@
 #include <wrl/implements.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <complex>
@@ -46,6 +49,16 @@ constexpr auto kFrameInterval = std::chrono::milliseconds(50);
 // Windows sends nothing while nothing plays: after this long without audio,
 // frames show silence instead of the last sound held.
 constexpr auto kQuietAfter = std::chrono::milliseconds(200);
+
+// How much audio "rms" is measured over, in seconds. Android's peak/RMS
+// measurement averages several of its buffers, not one capture; one capture
+// alone (about 23 ms) jumps on every drum hit, and the Dart side's reference
+// would then sit on those hits, keeping the view lower and pumping.
+constexpr double kRmsWindowSeconds = 0.25;
+
+// How long to wait before trying again to read a volume that couldn't be
+// read, or to find Blimp's own slider in the Volume Mixer.
+constexpr auto kVolumeRetry = std::chrono::seconds(1);
 
 constexpr double kPi = 3.14159265358979323846;
 
@@ -135,18 +148,17 @@ std::vector<double> Bands(const std::vector<double>& magnitude,
 
 // A frame from the last kCaptureSize samples, oldest first, mixed to mono.
 // Scaled to full range as Android's are, so it gives the spectrum's and the
-// waveform's shape; "rms" says how loud the music really is.
-EncodableValue MakeFrame(const std::vector<float>& samples, double sample_rate,
+// waveform's shape; |rms_db| says how loud the music really is, and
+// |system_volume| (0..1, 0 when muted; below 0 when unknown) how loud Windows
+// plays it.
+EncodableValue MakeFrame(const std::vector<float>& samples, double rms_db,
+                         double system_volume, double sample_rate,
                          bool whole_pc) {
   const size_t n = samples.size();
-  double sum = 0, loudest = 0;
+  double loudest = 0;
   for (float s : samples) {
-    sum += static_cast<double>(s) * s;
     loudest = std::max(loudest, std::abs(static_cast<double>(s)));
   }
-  const double rms = std::sqrt(sum / n);
-  const double rms_db =
-      rms > 0 ? std::max(kSilenceDb, 20 * std::log10(rms)) : kSilenceDb;
 
   // In Android's 8-bit sample units.
   const double scale = loudest > 1e-5 ? 128.0 / loudest : 0;
@@ -165,7 +177,7 @@ EncodableValue MakeFrame(const std::vector<float>& samples, double sample_rate,
     wave[i] = samples[i * n / kWavePoints] * scale / 128;
   }
 
-  return EncodableValue(EncodableMap{
+  EncodableMap frame{
       {EncodableValue("bands"),
        EncodableValue(Bands(magnitude, sample_rate, kBands))},
       {EncodableValue("fineBands"),
@@ -173,8 +185,181 @@ EncodableValue MakeFrame(const std::vector<float>& samples, double sample_rate,
       {EncodableValue("wave"), EncodableValue(wave)},
       {EncodableValue("rms"), EncodableValue(rms_db)},
       {EncodableValue("wholePc"), EncodableValue(whole_pc)},
-  });
+  };
+  if (system_volume >= 0) {
+    frame[EncodableValue("systemVolume")] = EncodableValue(system_volume);
+  }
+  return EncodableValue(frame);
 }
+
+// Hears from Windows, on its own threads, when the default output changes
+// (headphones plugged in, say), so the volume is looked up again only then.
+class DefaultOutputListener
+    : public RuntimeClass<RuntimeClassFlags<ClassicCom>, IMMNotificationClient> {
+ public:
+  STDMETHOD(OnDefaultDeviceChanged)(EDataFlow flow, ERole role, LPCWSTR) override {
+    if (flow == eRender && role == eConsole) changed_ = true;
+    return S_OK;
+  }
+  STDMETHOD(OnDeviceStateChanged)(LPCWSTR, DWORD) override { return S_OK; }
+  STDMETHOD(OnDeviceRemoved)(LPCWSTR) override { return S_OK; }
+  STDMETHOD(OnDeviceAdded)(LPCWSTR) override { return S_OK; }
+  STDMETHOD(OnPropertyValueChanged)(LPCWSTR, const PROPERTYKEY) override {
+    return S_OK;
+  }
+
+  // Whether it changed since this was last asked.
+  bool TakeChange() { return changed_.exchange(false); }
+
+ private:
+  std::atomic<bool> changed_{false};
+};
+
+// How loud Windows plays what's captured, as its volume slider and mute
+// button set it. Loopback capture takes the sound before this volume is
+// applied, so without it a muted PC would still move the visualizer.
+class SystemVolume {
+ public:
+  // |captured| is the output the whole PC's sound is captured from, and its
+  // volume is the one read. Null when capturing just Blimp's audio: that
+  // plays on the default output, so this follows it, and Blimp's own slider
+  // in the Volume Mixer counts too, as it's also applied after the capture.
+  explicit SystemVolume(ComPtr<IMMDevice> captured)
+      : device_(captured), follow_default_(!captured) {
+    if (follow_default_ &&
+        SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                   CLSCTX_ALL, IID_PPV_ARGS(&devices_)))) {
+      listener_ = Make<DefaultOutputListener>();
+      if (FAILED(devices_->RegisterEndpointNotificationCallback(
+              listener_.Get()))) {
+        listener_.Reset();
+      }
+    }
+  }
+
+  ~SystemVolume() {
+    if (devices_ && listener_) {
+      devices_->UnregisterEndpointNotificationCallback(listener_.Get());
+    }
+  }
+
+  SystemVolume(const SystemVolume&) = delete;
+  SystemVolume& operator=(const SystemVolume&) = delete;
+
+  // 0..1, 0 when muted. When it can't be read, the last value read, so a
+  // moment's failure doesn't look like full volume; -1 if it never was.
+  double Read() {
+    const auto now = std::chrono::steady_clock::now();
+    const bool moved = listener_ && listener_->TakeChange();
+    // Without word from Windows, the default output is checked now and then.
+    const bool unheard = follow_default_ && !listener_ && now >= retry_at_;
+    if (moved || unheard || (!endpoint_ && now >= retry_at_)) Open(now);
+    if (!endpoint_) return last_;
+    BOOL muted = FALSE;
+    float level = 0;
+    if (FAILED(endpoint_->GetMute(&muted)) ||
+        FAILED(endpoint_->GetMasterVolumeLevelScalar(&level))) {
+      endpoint_.Reset();
+      return last_;
+    }
+    double volume = muted ? 0 : level;
+    if (follow_default_) volume *= OwnSlider(now);
+    return last_ = volume;
+  }
+
+ private:
+  // Looks up the output's volume, and its apps' sliders, again.
+  void Open(std::chrono::steady_clock::time_point now) {
+    retry_at_ = now + kVolumeRetry;
+    endpoint_.Reset();
+    sessions_.Reset();
+    own_.Reset();
+    own_control_.Reset();
+    own_level_ = 1;
+    ComPtr<IMMDevice> device = device_;
+    if (follow_default_ &&
+        (!devices_ ||
+         FAILED(devices_->GetDefaultAudioEndpoint(eRender, eConsole,
+                                                  &device)))) {
+      return;
+    }
+    if (!device || FAILED(device->Activate(__uuidof(IAudioEndpointVolume),
+                                           CLSCTX_ALL, nullptr, &endpoint_))) {
+      endpoint_.Reset();
+      return;
+    }
+    if (follow_default_ &&
+        FAILED(device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL,
+                                nullptr, &sessions_))) {
+      sessions_.Reset();
+    }
+    find_at_ = now;
+  }
+
+  // Blimp's slider in the Volume Mixer, 0..1 (0 when muted there); the last
+  // value read while it can't be found, as before Blimp first plays.
+  double OwnSlider(std::chrono::steady_clock::time_point now) {
+    AudioSessionState state;
+    if (own_control_ && (FAILED(own_control_->GetState(&state)) ||
+                         state == AudioSessionStateExpired)) {
+      own_.Reset();
+      own_control_.Reset();
+    }
+    if (!own_ && sessions_ && now >= find_at_) {
+      find_at_ = now + kVolumeRetry;
+      FindOwnSession();
+    }
+    if (!own_) return own_level_;
+    BOOL muted = FALSE;
+    float level = 0;
+    if (FAILED(own_->GetMute(&muted)) || FAILED(own_->GetMasterVolume(&level))) {
+      own_.Reset();
+      own_control_.Reset();
+      return own_level_;
+    }
+    return own_level_ = muted ? 0 : level;
+  }
+
+  // Blimp's sound on the output, preferring one that's playing.
+  void FindOwnSession() {
+    ComPtr<IAudioSessionEnumerator> list;
+    int count = 0;
+    if (FAILED(sessions_->GetSessionEnumerator(&list)) ||
+        FAILED(list->GetCount(&count))) {
+      return;
+    }
+    const DWORD self = GetCurrentProcessId();
+    for (int i = 0; i < count; i++) {
+      ComPtr<IAudioSessionControl> control;
+      ComPtr<IAudioSessionControl2> about;
+      ComPtr<ISimpleAudioVolume> volume;
+      DWORD process = 0;
+      AudioSessionState state;
+      if (FAILED(list->GetSession(i, &control)) || FAILED(control.As(&about)) ||
+          FAILED(about->GetProcessId(&process)) || process != self ||
+          FAILED(control->GetState(&state)) ||
+          state == AudioSessionStateExpired || FAILED(control.As(&volume))) {
+        continue;
+      }
+      own_ = volume;
+      own_control_ = control;
+      if (state == AudioSessionStateActive) break;
+    }
+  }
+
+  ComPtr<IMMDevice> device_;
+  const bool follow_default_;
+  ComPtr<IMMDeviceEnumerator> devices_;
+  ComPtr<DefaultOutputListener> listener_;
+  ComPtr<IAudioEndpointVolume> endpoint_;
+  ComPtr<IAudioSessionManager2> sessions_;
+  ComPtr<ISimpleAudioVolume> own_;
+  ComPtr<IAudioSessionControl> own_control_;
+  double own_level_ = 1;
+  double last_ = -1;
+  std::chrono::steady_clock::time_point retry_at_;
+  std::chrono::steady_clock::time_point find_at_;
+};
 
 // Waits for Windows to hand over the process loopback's audio client.
 class ActivationHandler
@@ -248,10 +433,10 @@ ComPtr<IAudioClient> BlimpAudio(WAVEFORMATEX& format, HANDLE ready) {
   return client;
 }
 
-// Everything the PC plays, through the default speakers or headphones.
-ComPtr<IAudioClient> PcAudio(WAVEFORMATEX*& format) {
+// Everything the PC plays, through the default speakers or headphones;
+// |device| is set to which.
+ComPtr<IAudioClient> PcAudio(WAVEFORMATEX*& format, ComPtr<IMMDevice>& device) {
   ComPtr<IMMDeviceEnumerator> devices;
-  ComPtr<IMMDevice> device;
   ComPtr<IAudioClient> client;
   if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
                               CLSCTX_ALL, IID_PPV_ARGS(&devices))) ||
@@ -287,11 +472,12 @@ void Capture(HWND window, int generation,
 
   WAVEFORMATEX own_format{};
   WAVEFORMATEX* pc_format = nullptr;
+  ComPtr<IMMDevice> pc_device;
   bool whole_pc = false;
   ComPtr<IAudioClient> client = BlimpAudio(own_format, ready);
   const WAVEFORMATEX* format = &own_format;
   if (!client) {
-    client = PcAudio(pc_format);
+    client = PcAudio(pc_format, pc_device);
     format = pc_format;
     whole_pc = true;
   }
@@ -307,8 +493,18 @@ void Capture(HWND window, int generation,
   } else {
     const int channels = format->nChannels;
     const double sample_rate = format->nSamplesPerSec;
-    std::vector<float> ring(kCaptureSize, 0.0f);
+    // The last kRmsWindowSeconds of audio; each frame's spectrum and wave are
+    // from its newest kCaptureSize samples.
+    const size_t ring_size = std::max<size_t>(
+        kCaptureSize, static_cast<size_t>(sample_rate * kRmsWindowSeconds));
+    std::vector<float> ring(ring_size, 0.0f);
     size_t next_write = 0;
+    // How much of the ring holds audio, so "rms" isn't pulled down by the
+    // empty part when capture starts or after a quiet spell.
+    size_t filled = 0;
+    // The whole PC is captured from the output it started on, so that's the
+    // volume read.
+    SystemVolume system_volume(whole_pc ? pc_device : nullptr);
     auto now = std::chrono::steady_clock::now();
     auto next_frame = now;
     auto last_audio = now;
@@ -342,7 +538,8 @@ void Capture(HWND window, int generation,
             mono /= channels;
           }
           ring[next_write] = mono;
-          next_write = (next_write + 1) % kCaptureSize;
+          next_write = (next_write + 1) % ring_size;
+          if (filled < ring_size) filled++;
         }
         capture->ReleaseBuffer(frames);
         if (frames > 0) last_audio = std::chrono::steady_clock::now();
@@ -353,14 +550,21 @@ void Capture(HWND window, int generation,
       next_frame = now + kFrameInterval;
       if (now - last_audio > kQuietAfter) {
         std::fill(ring.begin(), ring.end(), 0.0f);
+        filled = 0;
       }
+      double sum = 0;
+      for (float s : ring) sum += static_cast<double>(s) * s;
+      const double rms = filled > 0 ? std::sqrt(sum / filled) : 0;
+      const double rms_db =
+          rms > 0 ? std::max(kSilenceDb, 20 * std::log10(rms)) : kSilenceDb;
       std::vector<float> samples(kCaptureSize);
+      const size_t oldest = next_write + ring_size - kCaptureSize;
       for (size_t i = 0; i < kCaptureSize; i++) {
-        samples[i] = ring[(next_write + i) % kCaptureSize];
+        samples[i] = ring[(oldest + i) % ring_size];
       }
-      Post(window,
-           new Frame{generation, false,
-                     MakeFrame(samples, sample_rate, whole_pc)});
+      Post(window, new Frame{generation, false,
+                             MakeFrame(samples, rms_db, system_volume.Read(),
+                                       sample_rate, whole_pc)});
     }
     client->Stop();
   }
