@@ -229,7 +229,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   static const _ratingsKey = 'song_ratings';
   static const _lyricsFinderKey = 'lyrics_finder';
   static const _saveLyricsKey = 'lyrics_in_files';
-  static const _discordStatusKey = 'discord_status';
   static const _hiddenFoldersKey = 'hidden_folders';
   static const _minSongSecondsKey = 'min_song_seconds';
   static const _speedKey = 'playback_speed';
@@ -803,7 +802,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _applyDesktopEqualizer();
     visualizerStyle = VisualizerStyle.values.asNameMap()[prefs.getString(_visualizerStyleKey)] ?? VisualizerStyle.bars;
     visualizerEnabled = prefs.getBool(_visualizerEnabledKey) ?? true;
-    discordStatus.value = isDesktop && (prefs.getBool(_discordStatusKey) ?? false);
+    // Blimp 1.7.3 and earlier could show the song playing on Discord; that's gone.
+    unawaited(prefs.remove('discord_status'));
     checkForUpdates = prefs.getBool(checkForUpdatesKey) ?? true;
     autoplay = prefs.getBool(_autoplayKey) ?? true;
     sameLanguage = prefs.getBool(_sameLanguageKey) ?? true;
@@ -1730,17 +1730,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       _notify({MusicAspect.searches});
       unawaited(goAgain ? _findLyrics() : _saveFoundLyrics());
     }
-  }
-
-  /// Whether the song playing shows on the user's Discord profile, on
-  /// Windows. Off until the user says so, as it tells other people what
-  /// they're listening to. Left out of backups, like the lyrics finder.
-  final discordStatus = ValueNotifier(false);
-
-  void setDiscordStatus(bool on) {
-    _prefs?.setBool(_discordStatusKey, on);
-    discordStatus.value = on;
-    _notify({MusicAspect.settings});
   }
 
   /// Whether Blimp asks GitHub for a newer version each time it opens (see

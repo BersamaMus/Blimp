@@ -79,9 +79,9 @@ manager to install unknown apps if it asks.
 - **Backups:** save your playlists, favourites, history, stats and settings to
   one file, and restore them on another device.
 - **Private:** Blimp collects nothing, and only goes online if you search for
-  lyrics or, on Windows, for missing tags, or for Discord covers if you turn on
-  the Discord status. Copies from GitHub also ask GitHub whether a newer version
-  is out when they open, sending nothing about you; turn it off in Settings.
+  lyrics or, on Windows, for missing tags. Copies from GitHub also ask GitHub
+  whether a newer version is out when they open, sending nothing about you;
+  turn it off in Settings.
   See the [privacy policy](https://bersamamus.com/blimp/privacy).
 - **Update notices:** says when a new version is out, with a link to download
   it. Play Store and Microsoft Store copies are updated by the store instead.
@@ -93,16 +93,13 @@ manager to install unknown apps if it asks.
 - A compact player that stays on top of other windows.
 - Media keys, Windows' media flyout, and play buttons on the taskbar preview.
 - Keeps playing in the system tray when you close the window.
+- Opens maximized the first time, then at the size and place you left it.
 - Pauses when headphones are unplugged.
 - Keyboard shortcuts: Space plays and pauses, Ctrl+Left and Ctrl+Right skip,
   Ctrl+F searches.
 - Find missing tags, in Settings: lists songs missing tags or covers and fills
   them in with one click from iTunes Search and MusicBrainz,
   leaving tags you already have.
-- Show what you're playing on your Discord profile, with covers found on iTunes
-  Search, MusicBrainz and the Cover Art Archive and a link to the song on
-  YouTube Music, through the Discord app on your PC. Off until you turn it on in
-  Settings > Privacy & data.
 
 ### On Android
 

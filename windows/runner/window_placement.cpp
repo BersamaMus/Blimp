@@ -20,7 +20,7 @@ bool RestoreWindowPlacement(HWND window) {
   if (RegGetValueW(HKEY_CURRENT_USER, kKey, kValue, RRF_RT_REG_BINARY, nullptr,
                    &placement, &size) != ERROR_SUCCESS ||
       size != sizeof(placement) || placement.length != sizeof(placement)) {
-    return false;
+    return true;
   }
   // Closed minimized: comes back as it was before minimizing.
   bool maximized =

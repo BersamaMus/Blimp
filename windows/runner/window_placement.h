@@ -10,8 +10,8 @@
 void SaveWindowPlacement(HWND window);
 
 // Moves and sizes the still-hidden |window| as it was last closed. Returns
-// whether it was maximized then, so it can be shown that way; false, and
-// the window left as created, on a first launch.
+// whether to show it maximized: as it was then, or, on a first launch (the
+// window left as created), true, so Blimp first opens filling the screen.
 bool RestoreWindowPlacement(HWND window);
 
 #endif  // RUNNER_WINDOW_PLACEMENT_H_

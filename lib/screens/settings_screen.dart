@@ -487,16 +487,6 @@ class PrivacySettingsScreen extends StatelessWidget {
             value: music.checkForUpdates,
             onChanged: music.setCheckForUpdates,
           ),
-          if (isDesktop) ...[
-            const Divider(),
-            _SwitchTile(
-              title: 'Show what I play on Discord',
-              subtitle:
-                  "While a song plays, people on Discord can see its title, artist, album and cover on your profile. To find the cover, Blimp sends the song's title and artist to Apple's iTunes Search and MusicBrainz. Needs the Discord app open on this PC, and Discord's activity status turned on",
-              value: music.discordStatus.value,
-              onChanged: music.setDiscordStatus,
-            ),
-          ],
         ],
       ),
     );
